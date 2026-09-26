@@ -1,0 +1,43 @@
+services:
+  mongo:
+    image: mongo:7
+    container_name: scatterboard-mongo
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo-data:/data/db
+
+  backend:
+    build: ./backend
+    container_name: scatterboard-backend
+    restart: unless-stopped
+    env_file:
+      - ./backend/.env
+    environment:
+      MONGO_URI: mongodb://mongo:27017
+      MONGO_DB_NAME: scatterboard
+    volumes:
+      - ./backend/app:/app/app
+    ports:
+      - "8000:8000"
+    depends_on:
+      - mongo
+
+  frontend:
+    build: ./frontend
+    container_name: scatterboard-frontend
+    restart: unless-stopped
+    environment:
+      BACKEND_URL: http://backend:8000
+      PORT: 3000
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+
+volumes:
+  mongo-data:

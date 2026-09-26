@@ -1,0 +1,1767 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Scatterboard</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=Public+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500&display=swap');
+
+  :root{
+    --canvas-bg:   #E7ECF1;
+    --canvas-dot:  #CBD5DE;
+    --surface:     #FFFFFF;
+    --surface-2:   #F3F6F8;
+    --border:      #D7DEE5;
+    --ink:         #1C232D;
+    --ink-soft:    #626E7C;
+    --ink-faint:   #97A2AE;
+    --accent:      #34655F;
+    --accent-ink:  #FFFFFF;
+    --danger:      #B4483C;
+    --shadow:      rgba(24,32,42,0.14);
+    --shadow-drag: rgba(24,32,42,0.24);
+
+    --hue-blue:  #3E6690;
+    --hue-sage:  #587555;
+    --hue-clay:  #A15E37;
+    --hue-mauve: #83557A;
+    --hue-ochre: #93732A;
+    --hue-slate: #545F6E;
+  }
+
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --canvas-bg:  #12161B;
+      --canvas-dot: #232B33;
+      --surface:    #1B2129;
+      --surface-2:  #212831;
+      --border:     #2C3540;
+      --ink:        #E8ECF1;
+      --ink-soft:   #9AA6B3;
+      --ink-faint:  #6B7684;
+      --accent:     #6FBBAF;
+      --accent-ink: #0E1613;
+      --danger:     #E08C7F;
+      --shadow:       rgba(0,0,0,0.45);
+      --shadow-drag:  rgba(0,0,0,0.6);
+
+      --hue-blue:  #7FA6CC;
+      --hue-sage:  #8FB088;
+      --hue-clay:  #CC9569;
+      --hue-mauve: #C193B7;
+      --hue-ochre: #CBAA5C;
+      --hue-slate: #97A3B2;
+    }
+  }
+  :root[data-theme="dark"]{
+    --canvas-bg:  #12161B;
+    --canvas-dot: #232B33;
+    --surface:    #1B2129;
+    --surface-2:  #212831;
+    --border:     #2C3540;
+    --ink:        #E8ECF1;
+    --ink-soft:   #9AA6B3;
+    --ink-faint:  #6B7684;
+    --accent:     #6FBBAF;
+    --accent-ink: #0E1613;
+    --danger:     #E08C7F;
+    --shadow:       rgba(0,0,0,0.45);
+    --shadow-drag:  rgba(0,0,0,0.6);
+
+    --hue-blue:  #7FA6CC;
+    --hue-sage:  #8FB088;
+    --hue-clay:  #CC9569;
+    --hue-mauve: #C193B7;
+    --hue-ochre: #CBAA5C;
+    --hue-slate: #97A3B2;
+  }
+
+  *{ box-sizing:border-box; }
+  html, body{ margin:0; padding:0; }
+  body{
+    background:var(--canvas-bg);
+    color:var(--ink);
+    font-family:'Public Sans', system-ui, sans-serif;
+    height:100dvh;
+    display:flex;
+    flex-direction:column;
+    overflow:hidden;
+  }
+
+  /* ---------- toolbar ---------- */
+  .toolbar{
+    display:flex;
+    align-items:center;
+    gap:16px;
+    flex-wrap:wrap;
+    padding:14px 20px;
+    border-bottom:1px solid var(--border);
+    background:var(--surface);
+    z-index:1000;
+  }
+  .brand{ display:flex; align-items:baseline; gap:10px; }
+  .brand h1{
+    font-family:'Fraunces', serif;
+    font-weight:600;
+    font-size:22px;
+    letter-spacing:0.2px;
+    margin:0;
+  }
+  .brand p{
+    margin:0;
+    font-size:12.5px;
+    color:var(--ink-soft);
+  }
+  .toolbar-actions{
+    margin-left:auto;
+    display:flex;
+    gap:10px;
+    align-items:center;
+    flex-wrap:wrap;
+  }
+  .count-pill{
+    font-family:'IBM Plex Mono', monospace;
+    font-size:12px;
+    color:var(--ink-soft);
+    background:var(--surface-2);
+    border:1px solid var(--border);
+    border-radius:999px;
+    padding:4px 10px;
+  }
+  button{ font-family:inherit; }
+  .btn{
+    display:inline-flex;
+    align-items:center;
+    gap:6px;
+    font-size:13.5px;
+    font-weight:600;
+    border-radius:8px;
+    padding:8px 14px;
+    border:1px solid var(--border);
+    background:var(--surface-2);
+    color:var(--ink);
+    cursor:pointer;
+    transition:background .12s ease, border-color .12s ease, transform .06s ease;
+  }
+  .btn:hover{ border-color:var(--ink-faint); }
+  .btn:active{ transform:translateY(1px); }
+  .btn:focus-visible{ outline:2px solid var(--accent); outline-offset:2px; }
+  .btn:disabled{ opacity:0.6; cursor:default; transform:none; }
+  .btn-primary{
+    background:var(--accent);
+    border-color:var(--accent);
+    color:var(--accent-ink);
+  }
+  .btn-primary:hover{ filter:brightness(1.06); }
+  .btn-ghost{
+    background:transparent;
+    border-color:transparent;
+    color:var(--ink-soft);
+  }
+  .btn-ghost:hover{ color:var(--danger); }
+
+  .theme-toggle{
+    width:32px; height:32px;
+    padding:0;
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    border-radius:8px;
+    border:1px solid var(--border);
+    background:var(--surface-2);
+    color:var(--ink-soft);
+    cursor:pointer;
+  }
+  .theme-toggle:hover{ border-color:var(--ink-faint); color:var(--ink); }
+  .theme-toggle:focus-visible{ outline:2px solid var(--accent); outline-offset:2px; }
+  .theme-toggle svg{ width:16px; height:16px; }
+  .theme-toggle .icon-sun{ display:none; }
+  .theme-toggle .icon-moon{ display:block; }
+  :root[data-theme="dark"] .theme-toggle .icon-sun{ display:block; }
+  :root[data-theme="dark"] .theme-toggle .icon-moon{ display:none; }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]) .theme-toggle .icon-sun{ display:block; }
+    :root:not([data-theme="light"]) .theme-toggle .icon-moon{ display:none; }
+  }
+  .theme-toggle .icon-eye-off{ display:none; }
+  html.hide-descriptions .theme-toggle .icon-eye{ display:none; }
+  html.hide-descriptions .theme-toggle .icon-eye-off{ display:block; }
+
+  /* ---------- canvas ---------- */
+  .canvas-scroll{
+    flex:1;
+    overflow:auto;
+    position:relative;
+  }
+  .canvas-zoom{
+    position:relative;
+  }
+  .canvas{
+    position:absolute;
+    left:0;
+    top:0;
+    width:2600px;
+    height:1600px;
+    transform-origin:0 0;
+    background-image: radial-gradient(var(--canvas-dot) 1.4px, transparent 1.4px);
+    background-size: 26px 26px;
+  }
+
+  /* ---------- zoom controls ---------- */
+  .zoom-controls{
+    display:flex;
+    align-items:stretch;
+    border:1px solid var(--border);
+    border-radius:8px;
+    background:var(--surface-2);
+    overflow:hidden;
+  }
+  .zoom-controls button{
+    border:none;
+    background:transparent;
+    color:var(--ink-soft);
+    cursor:pointer;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+  }
+  .zoom-controls button:hover{ background:var(--surface); color:var(--ink); }
+  .zoom-controls button:focus-visible{ outline:2px solid var(--accent); outline-offset:-2px; }
+  .zoom-controls button:disabled{ opacity:0.4; cursor:default; background:transparent; color:var(--ink-soft); }
+  .zoom-step{
+    width:30px;
+    height:32px;
+    font-size:17px;
+    font-weight:600;
+    line-height:1;
+  }
+  .zoom-level{
+    min-width:48px;
+    height:32px;
+    padding:0 6px;
+    font-family:'IBM Plex Mono', monospace;
+    font-size:11.5px;
+    font-weight:600;
+    border-left:1px solid var(--border);
+    border-right:1px solid var(--border);
+  }
+
+  /* ---------- card ---------- */
+  .card{
+    position:absolute;
+    display:flex;
+    flex-direction:column;
+    min-width:220px;
+    min-height:180px;
+    background:var(--surface);
+    border:1px solid var(--border);
+    border-radius:10px;
+    box-shadow:0 6px 16px var(--shadow);
+    overflow:hidden;
+  }
+  .card.dragging, .card.resizing{
+    box-shadow:0 14px 32px var(--shadow-drag);
+    cursor:grabbing;
+  }
+  .card-topbar{
+    height:4px;
+    background:var(--card-hue);
+    flex:none;
+  }
+  .card-header{
+    display:flex;
+    align-items:flex-start;
+    gap:8px;
+    padding:10px 8px 8px 12px;
+    cursor:grab;
+    flex:none;
+    user-select:none;
+  }
+  .card-header:active{ cursor:grabbing; }
+  .card-title{
+    flex:1;
+    font-weight:600;
+    font-size:14.5px;
+    line-height:1.3;
+    padding:2px 4px;
+    border-radius:5px;
+    cursor:text;
+    min-width:0;
+    word-break:break-word;
+  }
+  .card-title:hover{ background:var(--surface-2); }
+  .card-title:focus{
+    outline:2px solid var(--accent);
+    outline-offset:0;
+    background:var(--surface-2);
+  }
+  .card-title a, .card-subtitle a, .task-text a{
+    color:var(--card-hue);
+    text-decoration:underline;
+    cursor:pointer;
+  }
+  .card-subtitle{
+    font-size:12px;
+    line-height:1.35;
+    color:var(--ink-soft);
+    padding:0 12px 8px 12px;
+    margin-top:-4px;
+    border-radius:5px;
+    cursor:text;
+    word-break:break-word;
+  }
+  .card-subtitle:hover{ background:var(--surface-2); }
+  .card-subtitle:focus{
+    outline:2px solid var(--accent);
+    outline-offset:0;
+    background:var(--surface-2);
+  }
+  .card-subtitle:empty:before{
+    content:attr(data-placeholder);
+    color:var(--ink-faint);
+  }
+  html.hide-descriptions .card-subtitle{ display:none; }
+  .card-header-actions{
+    display:flex;
+    align-items:center;
+    gap:2px;
+    flex:none;
+    position:relative;
+  }
+  .icon-btn{
+    width:24px; height:24px;
+    display:flex; align-items:center; justify-content:center;
+    border:none; background:transparent; border-radius:6px;
+    color:var(--ink-faint);
+    cursor:pointer;
+    font-size:15px;
+    line-height:1;
+  }
+  .icon-btn:hover{ background:var(--surface-2); color:var(--ink); }
+  .icon-btn:focus-visible{ outline:2px solid var(--accent); outline-offset:1px; }
+  .icon-btn.danger:hover{ color:var(--danger); }
+  .icon-btn.complete-btn:hover{ color:var(--accent); }
+  .color-dot{
+    width:11px; height:11px; border-radius:50%;
+    background:var(--card-hue);
+    border:1px solid rgba(0,0,0,0.08);
+  }
+  .color-pop{
+    position:absolute;
+    top:26px; right:0;
+    background:var(--surface);
+    border:1px solid var(--border);
+    border-radius:8px;
+    box-shadow:0 8px 20px var(--shadow);
+    padding:7px;
+    display:grid;
+    grid-template-columns:repeat(3, 20px);
+    gap:6px;
+    z-index:50;
+  }
+  .color-pop button{
+    width:20px; height:20px; border-radius:50%;
+    border:1px solid rgba(0,0,0,0.1);
+    cursor:pointer;
+    padding:0;
+  }
+  .color-pop button:focus-visible{ outline:2px solid var(--accent); outline-offset:2px; }
+
+  .confirm-pop{
+    position:absolute;
+    top:26px; right:0;
+    width:190px;
+    background:var(--surface);
+    border:1px solid var(--border);
+    border-radius:8px;
+    box-shadow:0 8px 20px var(--shadow);
+    padding:10px;
+    z-index:50;
+  }
+  .confirm-pop p{
+    margin:0 0 8px;
+    font-size:12.5px;
+    line-height:1.4;
+    color:var(--ink);
+  }
+  .confirm-actions{
+    display:flex;
+    gap:6px;
+    justify-content:flex-end;
+  }
+  .confirm-actions button{
+    font-size:12px;
+    font-weight:600;
+    padding:5px 10px;
+    border-radius:6px;
+    border:1px solid var(--border);
+    background:var(--surface-2);
+    color:var(--ink);
+    cursor:pointer;
+  }
+  .confirm-actions button:focus-visible{ outline:2px solid var(--accent); outline-offset:2px; }
+  .confirm-actions .confirm-yes{
+    background:var(--danger);
+    border-color:var(--danger);
+    color:#fff;
+  }
+  .toolbar-actions{ position:relative; }
+  .anchor{ position:relative; display:inline-flex; }
+
+  .progress-row{
+    display:flex;
+    align-items:center;
+    gap:6px;
+    margin:0 12px;
+  }
+  .progress-track{
+    flex:1;
+    height:4px;
+    background:var(--surface-2);
+    border-radius:2px;
+    overflow:hidden;
+  }
+  .progress-fill{
+    height:100%;
+    background:var(--card-hue);
+    border-radius:2px;
+    transition:width .18s ease;
+  }
+  .completed-btn{
+    flex:none;
+    display:flex;
+    align-items:center;
+    gap:3px;
+    border:none;
+    background:transparent;
+    color:var(--ink-faint);
+    cursor:pointer;
+    font-family:'IBM Plex Mono', monospace;
+    font-size:10px;
+    padding:2px 5px;
+    border-radius:5px;
+  }
+  .completed-btn:hover{ background:var(--surface-2); color:var(--card-hue); }
+  .completed-btn:focus-visible{ outline:2px solid var(--accent); outline-offset:1px; }
+  .completed-btn svg{ width:13px; height:13px; }
+  .completed-pop{
+    position:absolute;
+    top:22px; right:0;
+    width:220px;
+    max-height:260px;
+    overflow-y:auto;
+    background:var(--surface);
+    border:1px solid var(--border);
+    border-radius:8px;
+    box-shadow:0 8px 20px var(--shadow);
+    padding:8px;
+    z-index:50;
+  }
+  .completed-pop-header{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    padding:2px 4px 8px;
+    font-size:10.5px;
+    font-weight:600;
+    color:var(--ink-soft);
+    text-transform:uppercase;
+    letter-spacing:0.4px;
+  }
+  .clear-completed-btn{
+    font-size:11px;
+    font-weight:600;
+    font-family:'Public Sans', system-ui, sans-serif;
+    text-transform:none;
+    letter-spacing:0;
+    border:none;
+    background:transparent;
+    color:var(--ink-faint);
+    cursor:pointer;
+    padding:2px 5px;
+    border-radius:4px;
+  }
+  .clear-completed-btn:hover{ color:var(--danger); background:var(--surface-2); }
+
+  #archive-btn svg{ width:14px; height:14px; }
+  .archive-pop{
+    position:absolute;
+    top:40px; right:0;
+    width:260px;
+    max-height:320px;
+    overflow-y:auto;
+    background:var(--surface);
+    border:1px solid var(--border);
+    border-radius:8px;
+    box-shadow:0 8px 20px var(--shadow);
+    padding:8px;
+    z-index:50;
+  }
+  .archive-list{
+    list-style:none;
+    margin:0;
+    padding:0;
+    display:flex;
+    flex-direction:column;
+    gap:2px;
+  }
+  .archive-item{
+    display:flex;
+    align-items:center;
+    gap:8px;
+    padding:6px;
+    border-radius:6px;
+  }
+  .archive-item:hover{ background:var(--surface-2); }
+  .archive-item .dot{
+    width:9px; height:9px;
+    border-radius:50%;
+    flex:none;
+  }
+  .archive-item .title{
+    flex:1;
+    font-size:12.5px;
+    color:var(--ink);
+    word-break:break-word;
+  }
+  .archive-item button{
+    flex:none;
+    width:22px; height:22px;
+    border:none;
+    background:transparent;
+    border-radius:5px;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    color:var(--ink-faint);
+    cursor:pointer;
+  }
+  .archive-item button svg{ width:14px; height:14px; }
+  .archive-item button:hover{ background:var(--surface); color:var(--ink); }
+  .archive-item .archived-delete-btn:hover,
+  .archive-item .archived-delete-btn.armed{ color:#fff; background:var(--danger); }
+
+  .card-body{
+    flex:1;
+    display:flex;
+    flex-direction:column;
+    min-height:0;
+    padding:8px 10px 10px;
+  }
+  .task-list{
+    list-style:none;
+    margin:0;
+    padding:0;
+    overflow-y:auto;
+    flex:1;
+    min-height:0;
+  }
+  .task{
+    display:flex;
+    align-items:flex-start;
+    gap:8px;
+    padding:5px 4px;
+    border-radius:6px;
+  }
+  .task:hover{ background:var(--surface-2); }
+  .task:hover .task-del{ opacity:1; }
+  .task-check{
+    flex:none;
+    width:16px; height:16px;
+    margin-top:2px;
+    border-radius:5px;
+    border:1.5px solid var(--ink-faint);
+    background:transparent;
+    cursor:pointer;
+    display:flex; align-items:center; justify-content:center;
+    padding:0;
+  }
+  .task-check svg{ display:none; width:11px; height:11px; }
+  .task[data-done="true"] .task-check{
+    background:var(--card-hue);
+    border-color:var(--card-hue);
+  }
+  .task[data-done="true"] .task-check svg{ display:block; }
+  .task-text{
+    flex:1;
+    font-size:13.5px;
+    line-height:1.4;
+    padding:1px 3px;
+    border-radius:4px;
+    min-width:0;
+    word-break:break-word;
+    cursor:text;
+  }
+  .task-text:focus{ outline:2px solid var(--accent); background:var(--surface-2); }
+  .task[data-done="true"] .task-text{
+    text-decoration:line-through;
+    color:var(--ink-faint);
+  }
+  .task-del{
+    flex:none;
+    width:18px; height:18px;
+    border:none; background:transparent;
+    color:var(--ink-faint);
+    border-radius:5px;
+    cursor:pointer;
+    opacity:0;
+    transition:opacity .1s ease;
+    font-size:14px;
+    line-height:1;
+  }
+  .task-del:hover{ color:var(--danger); background:var(--surface-2); }
+  .task-del:focus-visible{ opacity:1; outline:2px solid var(--accent); }
+
+  .task-add{
+    display:flex;
+    gap:6px;
+    margin-top:6px;
+    flex:none;
+  }
+  .task-add input{
+    flex:1;
+    min-width:0;
+    font-family:inherit;
+    font-size:13px;
+    padding:6px 8px;
+    border-radius:6px;
+    border:1px solid var(--border);
+    background:var(--surface-2);
+    color:var(--ink);
+  }
+  .task-add input::placeholder{ color:var(--ink-faint); }
+  .task-add input:focus{ outline:2px solid var(--accent); outline-offset:0; }
+  .task-add button{
+    flex:none;
+    font-size:12.5px;
+    font-weight:600;
+    padding:6px 10px;
+    border-radius:6px;
+    border:1px solid var(--border);
+    background:var(--surface);
+    color:var(--ink-soft);
+    cursor:pointer;
+  }
+  .task-add button:hover{ color:var(--accent); border-color:var(--card-hue); }
+
+  .task-count{
+    font-family:'IBM Plex Mono', monospace;
+    font-size:10.5px;
+    color:var(--ink-faint);
+    padding:0 12px 6px;
+    flex:none;
+  }
+
+  .resize-handle{
+    position:absolute;
+    right:2px; bottom:2px;
+    width:16px; height:16px;
+    cursor:nwse-resize;
+    color:var(--ink-faint);
+    display:flex; align-items:center; justify-content:center;
+    touch-action:none;
+  }
+  .resize-handle:hover{ color:var(--card-hue); }
+
+  .empty-hint{
+    position:absolute;
+    top:40px; left:40px;
+    color:var(--ink-soft);
+    font-size:13.5px;
+    max-width:280px;
+  }
+
+  @media (max-width: 600px){
+    .toolbar{ padding:10px 14px; gap:10px; }
+    .brand p{ display:none; }
+  }
+</style>
+</head>
+<body>
+<div class="toolbar">
+  <div class="brand">
+    <h1>Scatterboard</h1>
+    <p>Drag by the header, resize from the corner — everything saves to this browser.</p>
+  </div>
+  <div class="toolbar-actions">
+    <span class="count-pill" id="board-count">0 boards</span>
+    <span class="zoom-controls" role="group" aria-label="Canvas zoom">
+      <button class="zoom-step" id="zoom-out-btn" type="button" title="Zoom out (Ctrl/Cmd −)" aria-label="Zoom out">&minus;</button>
+      <button class="zoom-level" id="zoom-level-btn" type="button" title="Reset zoom to 100% (Ctrl/Cmd 0)" aria-label="Reset zoom to 100%">100%</button>
+      <button class="zoom-step" id="zoom-in-btn" type="button" title="Zoom in (Ctrl/Cmd +)" aria-label="Zoom in">+</button>
+    </span>
+    <button class="theme-toggle" id="desc-toggle" title="Show/hide descriptions" aria-label="Toggle board descriptions">
+      <svg class="icon-eye" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
+      <svg class="icon-eye-off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3l18 18M10.6 10.6a3 3 0 0 0 4.24 4.24M9.9 5.1A10.4 10.4 0 0 1 12 5c6.4 0 10 7 10 7a17.6 17.6 0 0 1-3.2 4.2M6.2 6.2A17.7 17.7 0 0 0 2 12s3.6 7 10 7c1.3 0 2.5-.2 3.6-.6"/></svg>
+    </button>
+    <button class="theme-toggle" id="theme-toggle" title="Switch theme" aria-label="Switch between light and dark theme">
+      <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4.5"/><path d="M12 2.5v2.5M12 19v2.5M4.6 4.6l1.8 1.8M17.6 17.6l1.8 1.8M2.5 12H5M19 12h2.5M4.6 19.4l1.8-1.8M17.6 6.4l1.8-1.8"/></svg>
+      <svg class="icon-moon" viewBox="0 0 24 24" fill="currentColor"><path d="M20 14.5A8.5 8.5 0 0 1 9.5 4 8.5 8.5 0 1 0 20 14.5Z"/></svg>
+    </button>
+    <span class="anchor" id="archive-anchor">
+      <button class="btn" id="archive-btn" type="button" hidden aria-label="View completed boards">
+        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="10" r="7.3"/><path d="M6.7 10.2l2 2.1 4.4-4.6"/></svg>
+        Completed <span class="count-pill" id="archive-count">0</span>
+      </button>
+    </span>
+    <span class="anchor" id="reset-anchor">
+      <button class="btn" id="reset-btn">Reset sample</button>
+    </span>
+    <span class="anchor" id="import-anchor">
+      <button class="btn" id="import-btn">Import</button>
+      <input type="file" id="import-input" accept="application/json,.json" hidden>
+    </span>
+    <button class="btn" id="export-json-btn">Export JSON</button>
+    <button class="btn" id="export-btn">Export PDF</button>
+    <button class="btn btn-primary" id="add-btn">+ New board</button>
+  </div>
+</div>
+
+<div class="canvas-scroll" id="canvas-scroll">
+  <div class="canvas-zoom" id="canvas-zoom">
+    <div class="canvas" id="canvas"></div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/4.2.1/jspdf.umd.min.js"></script>
+<script>
+(function(){
+  "use strict";
+
+  var STORAGE_KEY = "scatterboard.boards.v1";
+  var THEME_KEY = "scatterboard.theme.v1";
+  var DESC_KEY = "scatterboard.descVisible.v1";
+  var ZOOM_KEY = "scatterboard.zoom.v1";
+  var CANVAS_W = 2600, CANVAS_H = 1600;
+  var MIN_W = 220, MIN_H = 180;
+  var ZOOM_MIN = 0.3, ZOOM_MAX = 2, ZOOM_STEP = 0.1, ZOOM_DEFAULT = 1;
+  var zoom = ZOOM_DEFAULT;
+
+  var HUES = [
+    {name:"blue",  var:"--hue-blue"},
+    {name:"sage",  var:"--hue-sage"},
+    {name:"clay",  var:"--hue-clay"},
+    {name:"mauve", var:"--hue-mauve"},
+    {name:"ochre", var:"--hue-ochre"},
+    {name:"slate", var:"--hue-slate"}
+  ];
+
+  function hueValue(name){
+    var h = HUES.find(function(x){ return x.name === name; }) || HUES[0];
+    return getComputedStyle(document.documentElement).getPropertyValue(h.var).trim();
+  }
+
+  function systemPrefersDark(){
+    return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+  }
+
+  function applyTheme(theme){
+    if(theme === 'light' || theme === 'dark'){
+      document.documentElement.setAttribute('data-theme', theme);
+    } else {
+      document.documentElement.removeAttribute('data-theme');
+    }
+  }
+
+  function initTheme(){
+    var stored = null;
+    try{ stored = localStorage.getItem(THEME_KEY); }catch(e){}
+    applyTheme(stored);
+
+    var toggle = document.getElementById('theme-toggle');
+    toggle.addEventListener('click', function(){
+      var current = document.documentElement.getAttribute('data-theme');
+      var isDark = current ? current === 'dark' : systemPrefersDark();
+      var next = isDark ? 'light' : 'dark';
+      applyTheme(next);
+      try{ localStorage.setItem(THEME_KEY, next); }catch(e){}
+      refreshCardHues();
+    });
+  }
+
+  function initDescToggle(){
+    var stored = null;
+    try{ stored = localStorage.getItem(DESC_KEY); }catch(e){}
+    if(stored === 'hidden'){
+      document.documentElement.classList.add('hide-descriptions');
+    }
+    var toggle = document.getElementById('desc-toggle');
+    toggle.addEventListener('click', function(){
+      var hidden = document.documentElement.classList.toggle('hide-descriptions');
+      try{ localStorage.setItem(DESC_KEY, hidden ? 'hidden' : 'visible'); }catch(e){}
+    });
+  }
+
+  function refreshCardHues(){
+    canvas.querySelectorAll('.card').forEach(function(el){
+      var board = boards.find(function(b){ return b.id === el.dataset.id; });
+      if(board) el.style.setProperty('--card-hue', hueValue(board.color));
+    });
+  }
+
+  function uid(){
+    return 'id-' + Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
+  }
+
+  function hexToRgb(hex){
+    hex = hex.replace('#', '');
+    if(hex.length === 3){ hex = hex.split('').map(function(c){ return c + c; }).join(''); }
+    var num = parseInt(hex, 16);
+    return { r:(num >> 16) & 255, g:(num >> 8) & 255, b: num & 255 };
+  }
+
+  async function saveBlob(blob, filename){
+    if(window.claude && typeof window.claude.use === 'function'){
+      try{
+        var downloads = await window.claude.use('downloads');
+        if(downloads){
+          await downloads.save({ filename: filename, data: blob });
+          return true;
+        }
+      }catch(e){ /* fall through to a plain browser download */ }
+    }
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(function(){ URL.revokeObjectURL(url); }, 4000);
+    return true;
+  }
+
+  function exportPdf(){
+    if(!window.jspdf) return Promise.resolve(false);
+    var doc = new window.jspdf.jsPDF({ unit: 'pt', format: 'a4' });
+    var pageW = doc.internal.pageSize.getWidth();
+    var pageH = doc.internal.pageSize.getHeight();
+    var margin = 48;
+    var contentW = pageW - margin * 2;
+    var y = margin;
+
+    function ensureSpace(h){
+      if(y + h > pageH - margin){ doc.addPage(); y = margin; }
+    }
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(20);
+    doc.setTextColor(28, 35, 45);
+    doc.text('Scatterboard: Project Summary', margin, y);
+    y += 20;
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(10);
+    doc.setTextColor(100, 110, 120);
+    var dateStr = new Date().toLocaleDateString(undefined, { year:'numeric', month:'long', day:'numeric' });
+    doc.text('Generated ' + dateStr + '  ·  ' + boards.length + (boards.length === 1 ? ' board' : ' boards'), margin, y);
+    y += 28;
+
+    if(!boards.length){
+      doc.setFontSize(11);
+      doc.setTextColor(140, 148, 158);
+      doc.text('No boards yet.', margin, y);
+    }
+
+    boards.forEach(function(board){
+      var rgb = hexToRgb(hueValue(board.color));
+      var total = board.tasks.length;
+      var done = board.tasks.filter(function(t){ return t.done; }).length;
+
+      ensureSpace(30);
+      doc.setFillColor(rgb.r, rgb.g, rgb.b);
+      doc.rect(margin, y, 4, 16, 'F');
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(13);
+      doc.setTextColor(28, 35, 45);
+      doc.text(board.title || 'Untitled board', margin + 12, y + 12);
+      y += 22;
+
+      if(board.description){
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(9.5);
+        doc.setTextColor(98, 110, 124);
+        doc.splitTextToSize(board.description, contentW - 12).forEach(function(line){
+          ensureSpace(13);
+          doc.text(line, margin + 12, y);
+          y += 13;
+        });
+        y += 2;
+      }
+
+      ensureSpace(14);
+      var barW = 140, barH = 5;
+      doc.setFillColor(230, 233, 237);
+      doc.roundedRect(margin + 12, y, barW, barH, 2, 2, 'F');
+      if(total){
+        doc.setFillColor(rgb.r, rgb.g, rgb.b);
+        doc.roundedRect(margin + 12, y, Math.max(2, barW * (done / total)), barH, 2, 2, 'F');
+      }
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8.5);
+      doc.setTextColor(140, 148, 158);
+      doc.text(total ? (done + ' of ' + total + ' done') : 'No tasks', margin + 12 + barW + 8, y + 5);
+      y += barH + 14;
+
+      doc.setFontSize(10.5);
+      board.tasks.forEach(function(task){
+        var lines = doc.splitTextToSize(task.text, contentW - 30);
+        ensureSpace(lines.length * 13 + 4);
+
+        doc.setDrawColor(150, 158, 168);
+        if(task.done){
+          doc.setFillColor(rgb.r, rgb.g, rgb.b);
+          doc.roundedRect(margin + 12, y - 8, 9, 9, 2, 2, 'F');
+        } else {
+          doc.roundedRect(margin + 12, y - 8, 9, 9, 2, 2, 'S');
+        }
+
+        doc.setFont('helvetica', 'normal');
+        if(task.done){ doc.setTextColor(165, 170, 178); } else { doc.setTextColor(30, 38, 48); }
+        lines.forEach(function(line, i){
+          doc.text(line, margin + 28, y + i * 13);
+        });
+        if(task.done){
+          doc.setDrawColor(165, 170, 178);
+          doc.line(margin + 28, y - 3, margin + 28 + doc.getTextWidth(lines[0]), y - 3);
+        }
+        y += lines.length * 13 + 6;
+      });
+
+      y += 16;
+    });
+
+    var blob = doc.output('blob');
+    return saveBlob(blob, 'scatterboard-summary.pdf');
+  }
+
+  function exportJson(){
+    var payload = {
+      app: 'scatterboard',
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      boards: boards.map(function(b){
+        return {
+          title: b.title,
+          description: b.description || '',
+          color: b.color,
+          completed: !!b.completed,
+          x: b.x, y: b.y, w: b.w, h: b.h,
+          tasks: b.tasks.map(function(t){ return { text: t.text, done: !!t.done }; })
+        };
+      })
+    };
+    var blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+    return saveBlob(blob, 'scatterboard-boards.json');
+  }
+
+  function sanitizeImportedBoard(raw, index){
+    var color = HUES.some(function(h){ return h.name === raw.color; }) ? raw.color : HUES[index % HUES.length].name;
+    var w = clamp(Number(raw.w) || 290, MIN_W, CANVAS_W);
+    var h = clamp(Number(raw.h) || 260, MIN_H, CANVAS_H);
+    var x = clamp(Number(raw.x) || 0, 0, CANVAS_W - w);
+    var y = clamp(Number(raw.y) || 0, 0, CANVAS_H - h);
+    var tasks = Array.isArray(raw.tasks) ? raw.tasks.map(function(t){
+      return { id: uid(), text: String((t && t.text) || '').trim(), done: !!(t && t.done) };
+    }).filter(function(t){ return t.text; }) : [];
+    return {
+      id: uid(),
+      title: String(raw.title || 'Untitled board').trim() || 'Untitled board',
+      description: String(raw.description || '').trim(),
+      color: color,
+      completed: !!raw.completed,
+      x: x, y: y, w: w, h: h, z: index + 1,
+      tasks: tasks
+    };
+  }
+
+  function defaultBoards(){
+    return [
+      {
+        id: uid(), title: "Design System", color: "sage",
+        description: "Foundational UI kit for the new product surface.",
+        x: 60, y: 70, w: 300, h: 350, z: 1,
+        tasks: [
+          {id: uid(), text:"Audit existing components", done:true},
+          {id: uid(), text:"Define spacing & type scale", done:true},
+          {id: uid(), text:"Build button variants", done:false},
+          {id: uid(), text:"Document color tokens", done:false},
+          {id: uid(), text:"Get design QA sign-off", done:false}
+        ]
+      },
+      {
+        id: uid(), title: "API Migration", color: "blue",
+        description: "Moving all services from the v1 to v2 API.",
+        x: 400, y: 50, w: 310, h: 380, z: 2,
+        tasks: [
+          {id: uid(), text:"Map v1 endpoints to v2", done:true},
+          {id: uid(), text:"Write compatibility shim", done:true},
+          {id: uid(), text:"Migrate auth service", done:false},
+          {id: uid(), text:"Load test staging", done:false},
+          {id: uid(), text:"Update client SDK docs", done:false},
+          {id: uid(), text:"Deprecate v1 routes", done:false}
+        ]
+      },
+      {
+        id: uid(), title: "Launch Checklist", color: "clay",
+        description: "Everything that must be done before we ship.",
+        x: 750, y: 100, w: 290, h: 300, z: 3,
+        tasks: [
+          {id: uid(), text:"Final QA pass", done:false},
+          {id: uid(), text:"Prep release notes", done:false},
+          {id: uid(), text:"Confirm rollback plan", done:false},
+          {id: uid(), text:"Notify support team", done:false}
+        ]
+      },
+      {
+        id: uid(), title: "Backlog", color: "slate",
+        description: "Ideas and fixes that haven't been scheduled yet.",
+        x: 60, y: 450, w: 300, h: 250, z: 4,
+        tasks: [
+          {id: uid(), text:"Investigate slow dashboard query", done:false},
+          {id: uid(), text:"Explore dark mode for reports", done:false},
+          {id: uid(), text:"Revisit onboarding email copy", done:false}
+        ]
+      }
+    ];
+  }
+
+  var boards = [];
+  var zCounter = 10;
+
+  function load(){
+    try{
+      var raw = localStorage.getItem(STORAGE_KEY);
+      if(!raw) return null;
+      var data = JSON.parse(raw);
+      if(!data || !Array.isArray(data.boards) || !data.boards.length) return null;
+      return data;
+    }catch(e){ return null; }
+  }
+
+  function persist(){
+    try{
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({boards: boards, z: zCounter}));
+    }catch(e){ /* storage unavailable; state stays in memory for this view */ }
+  }
+
+  var canvas = document.getElementById('canvas');
+  var canvasZoomWrapper = document.getElementById('canvas-zoom');
+  var canvasScroll = document.getElementById('canvas-scroll');
+  var boardCountEl = document.getElementById('board-count');
+  var zoomOutBtn = document.getElementById('zoom-out-btn');
+  var zoomInBtn = document.getElementById('zoom-in-btn');
+  var zoomLevelBtn = document.getElementById('zoom-level-btn');
+
+  function clamp(v, min, max){ return Math.max(min, Math.min(max, v)); }
+
+  function loadZoom(){
+    try{
+      var raw = localStorage.getItem(ZOOM_KEY);
+      var val = raw ? parseFloat(raw) : ZOOM_DEFAULT;
+      return isFinite(val) ? clamp(val, ZOOM_MIN, ZOOM_MAX) : ZOOM_DEFAULT;
+    }catch(e){ return ZOOM_DEFAULT; }
+  }
+
+  function persistZoom(){
+    try{ localStorage.setItem(ZOOM_KEY, String(zoom)); }catch(e){}
+  }
+
+  function updateZoomUI(){
+    zoomLevelBtn.textContent = Math.round(zoom * 100) + '%';
+    zoomOutBtn.disabled = zoom <= ZOOM_MIN + 1e-6;
+    zoomInBtn.disabled = zoom >= ZOOM_MAX - 1e-6;
+  }
+
+  // Keeps the point under `anchor` (or the viewport center) visually
+  // stationary while the canvas scales, like a design-tool zoom.
+  function setZoom(next, anchor){
+    next = clamp(Math.round(next * 100) / 100, ZOOM_MIN, ZOOM_MAX);
+    if(next === zoom) return;
+
+    var rect = canvasScroll.getBoundingClientRect();
+    var ax = anchor ? anchor.x - rect.left : canvasScroll.clientWidth / 2;
+    var ay = anchor ? anchor.y - rect.top : canvasScroll.clientHeight / 2;
+    var canvasX = (canvasScroll.scrollLeft + ax) / zoom;
+    var canvasY = (canvasScroll.scrollTop + ay) / zoom;
+
+    zoom = next;
+    canvas.style.transform = 'scale(' + zoom + ')';
+    canvasZoomWrapper.style.width = (CANVAS_W * zoom) + 'px';
+    canvasZoomWrapper.style.height = (CANVAS_H * zoom) + 'px';
+
+    canvasScroll.scrollLeft = canvasX * zoom - ax;
+    canvasScroll.scrollTop = canvasY * zoom - ay;
+
+    updateZoomUI();
+    persistZoom();
+  }
+
+  function initZoom(){
+    zoom = loadZoom();
+    canvas.style.transform = 'scale(' + zoom + ')';
+    canvasZoomWrapper.style.width = (CANVAS_W * zoom) + 'px';
+    canvasZoomWrapper.style.height = (CANVAS_H * zoom) + 'px';
+    updateZoomUI();
+
+    zoomOutBtn.addEventListener('click', function(){ setZoom(zoom - ZOOM_STEP); });
+    zoomInBtn.addEventListener('click', function(){ setZoom(zoom + ZOOM_STEP); });
+    zoomLevelBtn.addEventListener('click', function(){ setZoom(ZOOM_DEFAULT); });
+
+    canvasScroll.addEventListener('wheel', function(e){
+      if(!(e.ctrlKey || e.metaKey)) return;
+      e.preventDefault();
+      var factor = Math.exp(-e.deltaY * 0.0015);
+      setZoom(zoom * factor, {x: e.clientX, y: e.clientY});
+    }, {passive:false});
+
+    document.addEventListener('keydown', function(e){
+      if(!(e.ctrlKey || e.metaKey)) return;
+      var tag = (e.target && e.target.tagName) || '';
+      if(tag === 'INPUT' || tag === 'TEXTAREA' || (e.target && e.target.isContentEditable)) return;
+      if(e.key === '=' || e.key === '+'){
+        e.preventDefault();
+        setZoom(zoom + ZOOM_STEP);
+      } else if(e.key === '-' || e.key === '_'){
+        e.preventDefault();
+        setZoom(zoom - ZOOM_STEP);
+      } else if(e.key === '0'){
+        e.preventDefault();
+        setZoom(ZOOM_DEFAULT);
+      }
+    });
+  }
+
+  function updateCount(){
+    var active = boards.filter(function(b){ return !b.completed; }).length;
+    boardCountEl.textContent = active + (active === 1 ? " board" : " boards");
+  }
+
+  function bringToFront(board, el){
+    zCounter += 1;
+    board.z = zCounter;
+    el.style.zIndex = zCounter;
+  }
+
+  function linkify(text){
+    var esc = document.createElement('div');
+    esc.textContent = text;
+    var escaped = esc.innerHTML;
+    return escaped.replace(/((https?:\/\/|www\.)[^\s<]+)/gi, function(match){
+      var trail = '';
+      var m = match.match(/[),.;:!?]+$/);
+      if(m){ trail = m[0]; match = match.slice(0, match.length - trail.length); }
+      var href = /^https?:\/\//i.test(match) ? match : 'https://' + match;
+      return '<a href="' + href + '" target="_blank" rel="noopener noreferrer">' + match + '</a>' + trail;
+    });
+  }
+
+  // Renders text with clickable links; a click elsewhere on the element
+  // enters plain-text edit mode (contenteditable), since links inside a
+  // permanently-editable region can't be both clickable and cursor-placeable.
+  function wireInlineEditable(el, opts){
+    function renderView(){
+      var val = opts.getValue();
+      el.innerHTML = val ? linkify(val) : '';
+    }
+    renderView();
+
+    el.addEventListener('pointerdown', function(e){
+      if(e.target.closest('a')) return;
+      e.stopPropagation();
+    });
+    el.addEventListener('click', function(e){
+      if(e.target.closest('a')) return;
+      if(el.isContentEditable) return;
+      el.contentEditable = 'true';
+      el.textContent = opts.getValue();
+      el.focus();
+      var range = document.createRange();
+      range.selectNodeContents(el);
+      range.collapse(false);
+      var sel = window.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(range);
+    });
+    el.addEventListener('keydown', function(e){
+      if(e.key === 'Enter'){ e.preventDefault(); el.blur(); }
+    });
+    el.addEventListener('blur', function(){
+      if(!el.isContentEditable) return;
+      el.removeAttribute('contenteditable');
+      var val = el.textContent.trim();
+      if(!val && opts.onEmpty){ opts.onEmpty(); return; }
+      opts.setValue(val);
+      renderView();
+    });
+  }
+
+  function checkIcon(){
+    return '<svg viewBox="0 0 12 12" fill="none"><path d="M2.2 6.4L4.6 8.8L9.8 3.2" stroke="var(--accent-ink,#fff)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+  }
+
+  function createCard(board){
+    var el = document.createElement('div');
+    el.className = 'card';
+    el.dataset.id = board.id;
+    el.style.left = board.x + 'px';
+    el.style.top = board.y + 'px';
+    el.style.width = board.w + 'px';
+    el.style.height = board.h + 'px';
+    el.style.zIndex = board.z;
+    el.style.setProperty('--card-hue', hueValue(board.color));
+
+    el.innerHTML =
+      '<div class="card-topbar"></div>' +
+      '<div class="card-header">' +
+        '<div class="card-title" spellcheck="false"></div>' +
+        '<div class="card-header-actions">' +
+          '<button class="icon-btn color-btn" title="Change color" aria-label="Change color"><span class="color-dot"></span></button>' +
+          '<button class="icon-btn complete-btn" title="Mark board complete" aria-label="Mark board complete"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="10" r="7.3"/><path d="M6.7 10.2l2 2.1 4.4-4.6"/></svg></button>' +
+          '<button class="icon-btn danger delete-btn" title="Delete board" aria-label="Delete board">&times;</button>' +
+        '</div>' +
+      '</div>' +
+      '<div class="card-subtitle" spellcheck="false" data-placeholder="Add a one-line description…"></div>' +
+      '<div class="progress-row">' +
+        '<div class="progress-track"><div class="progress-fill"></div></div>' +
+        '<span class="anchor completed-anchor">' +
+          '<button class="completed-btn" type="button" hidden aria-label="View completed tasks">' +
+            '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="10" r="7.3"/><path d="M6.7 10.2l2 2.1 4.4-4.6"/></svg>' +
+            '<span class="completed-count">0</span>' +
+          '</button>' +
+        '</span>' +
+      '</div>' +
+      '<div class="card-body">' +
+        '<ul class="task-list"></ul>' +
+        '<div class="task-count"></div>' +
+        '<form class="task-add"><input type="text" placeholder="Add a task…" aria-label="New task"><button type="submit">Add</button></form>' +
+      '</div>' +
+      '<div class="resize-handle" aria-hidden="true"><svg width="12" height="12" viewBox="0 0 12 12"><path d="M10 1 1 10M11 5.5 5.5 11M11 9 9 11" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg></div>';
+
+    var titleEl = el.querySelector('.card-title');
+    wireInlineEditable(titleEl, {
+      getValue: function(){ return board.title; },
+      setValue: function(val){ board.title = val || "Untitled board"; persist(); }
+    });
+
+    var subtitleEl = el.querySelector('.card-subtitle');
+    wireInlineEditable(subtitleEl, {
+      getValue: function(){ return board.description || ''; },
+      setValue: function(val){ board.description = val; persist(); }
+    });
+
+    var taskList = el.querySelector('.task-list');
+    var taskCountEl = el.querySelector('.task-count');
+    var progressFill = el.querySelector('.progress-fill');
+    var completedAnchor = el.querySelector('.completed-anchor');
+    var completedBtn = el.querySelector('.completed-btn');
+    var completedCountEl = el.querySelector('.completed-count');
+
+    function renderTasks(){
+      taskList.innerHTML = '';
+      board.tasks.filter(function(t){ return !t.done; }).forEach(function(task){
+        var li = document.createElement('li');
+        li.className = 'task';
+        li.setAttribute('data-done', 'false');
+        li.innerHTML =
+          '<button class="task-check" aria-label="Mark task done">' + checkIcon() + '</button>' +
+          '<span class="task-text" spellcheck="false"></span>' +
+          '<button class="task-del" aria-label="Delete task">&times;</button>';
+
+        li.querySelector('.task-check').addEventListener('click', function(){
+          task.done = true;
+          renderTasks();
+          updateMeta();
+          renderCompletedPop();
+          persist();
+        });
+
+        var textEl = li.querySelector('.task-text');
+        wireInlineEditable(textEl, {
+          getValue: function(){ return task.text; },
+          setValue: function(val){ task.text = val; persist(); },
+          onEmpty: function(){
+            board.tasks = board.tasks.filter(function(t){ return t.id !== task.id; });
+            renderTasks();
+            updateMeta();
+            persist();
+          }
+        });
+
+        li.querySelector('.task-del').addEventListener('pointerdown', function(e){ e.stopPropagation(); });
+        li.querySelector('.task-del').addEventListener('click', function(){
+          board.tasks = board.tasks.filter(function(t){ return t.id !== task.id; });
+          renderTasks();
+          updateMeta();
+          persist();
+        });
+
+        taskList.appendChild(li);
+      });
+    }
+
+    function updateMeta(){
+      var total = board.tasks.length;
+      var done = board.tasks.filter(function(t){ return t.done; }).length;
+      var open = total - done;
+      taskCountEl.textContent = total ? (open + (open === 1 ? " task left" : " tasks left")) : "No tasks yet";
+      progressFill.style.width = total ? Math.round((done/total)*100) + '%' : '0%';
+      completedCountEl.textContent = done;
+      completedBtn.hidden = done === 0;
+    }
+
+    function buildCompletedItem(task){
+      var li = document.createElement('li');
+      li.className = 'task';
+      li.setAttribute('data-done', 'true');
+      li.innerHTML =
+        '<button class="task-check" aria-label="Restore task">' + checkIcon() + '</button>' +
+        '<span class="task-text"></span>' +
+        '<button class="task-del" aria-label="Delete task permanently">&times;</button>';
+      li.querySelector('.task-text').innerHTML = linkify(task.text);
+      li.querySelector('.task-check').addEventListener('pointerdown', function(e){ e.stopPropagation(); });
+      li.querySelector('.task-check').addEventListener('click', function(){
+        task.done = false;
+        renderTasks();
+        updateMeta();
+        renderCompletedPop();
+        persist();
+      });
+      li.querySelector('.task-del').addEventListener('pointerdown', function(e){ e.stopPropagation(); });
+      li.querySelector('.task-del').addEventListener('click', function(){
+        board.tasks = board.tasks.filter(function(t){ return t.id !== task.id; });
+        updateMeta();
+        renderCompletedPop();
+        persist();
+      });
+      return li;
+    }
+
+    function renderCompletedPop(){
+      var pop = completedAnchor.querySelector('.completed-pop');
+      if(!pop) return;
+      var done = board.tasks.filter(function(t){ return t.done; });
+      if(!done.length){ pop.remove(); return; }
+      var list = pop.querySelector('.task-list');
+      list.innerHTML = '';
+      done.forEach(function(task){ list.appendChild(buildCompletedItem(task)); });
+    }
+
+    completedBtn.addEventListener('pointerdown', function(e){ e.stopPropagation(); });
+    completedBtn.addEventListener('click', function(e){
+      e.stopPropagation();
+      var existing = completedAnchor.querySelector('.completed-pop');
+      if(existing){ existing.remove(); return; }
+      closeAllPopovers();
+      var pop = document.createElement('div');
+      pop.className = 'completed-pop popover';
+      pop.innerHTML =
+        '<div class="completed-pop-header"><span>Completed</span><button class="clear-completed-btn" type="button">Clear all</button></div>' +
+        '<ul class="task-list"></ul>';
+      pop.querySelector('.clear-completed-btn').addEventListener('pointerdown', function(ev){ ev.stopPropagation(); });
+      pop.querySelector('.clear-completed-btn').addEventListener('click', function(ev){
+        ev.stopPropagation();
+        board.tasks = board.tasks.filter(function(t){ return !t.done; });
+        updateMeta();
+        persist();
+        pop.remove();
+      });
+      completedAnchor.appendChild(pop);
+      renderCompletedPop();
+    });
+
+    renderTasks();
+    updateMeta();
+
+    var form = el.querySelector('.task-add');
+    var input = form.querySelector('input');
+    input.addEventListener('pointerdown', function(e){ e.stopPropagation(); });
+    form.addEventListener('pointerdown', function(e){ e.stopPropagation(); });
+    form.addEventListener('submit', function(e){
+      e.preventDefault();
+      var val = input.value.trim();
+      if(!val) return;
+      board.tasks.push({id: uid(), text: val, done:false});
+      input.value = '';
+      renderTasks();
+      updateMeta();
+      persist();
+    });
+
+    var colorBtn = el.querySelector('.color-btn');
+    colorBtn.addEventListener('pointerdown', function(e){ e.stopPropagation(); });
+    colorBtn.addEventListener('click', function(e){
+      e.stopPropagation();
+      var existing = el.querySelector('.color-pop');
+      if(existing){ existing.remove(); return; }
+      closeAllPopovers();
+      var pop = document.createElement('div');
+      pop.className = 'color-pop popover';
+      HUES.forEach(function(h){
+        var b = document.createElement('button');
+        b.style.background = hueValue(h.name);
+        b.title = h.name;
+        b.addEventListener('click', function(ev){
+          ev.stopPropagation();
+          board.color = h.name;
+          el.style.setProperty('--card-hue', hueValue(h.name));
+          pop.remove();
+          persist();
+        });
+        pop.appendChild(b);
+      });
+      el.querySelector('.card-header-actions').appendChild(pop);
+    });
+
+    var completeBoardBtn = el.querySelector('.complete-btn');
+    completeBoardBtn.addEventListener('pointerdown', function(e){ e.stopPropagation(); });
+    completeBoardBtn.addEventListener('click', function(e){
+      e.stopPropagation();
+      board.completed = true;
+      renderAll();
+      persist();
+    });
+
+    var deleteBtn = el.querySelector('.delete-btn');
+    deleteBtn.addEventListener('pointerdown', function(e){ e.stopPropagation(); });
+    deleteBtn.addEventListener('click', function(e){
+      e.stopPropagation();
+      var existing = el.querySelector('.confirm-pop');
+      if(existing){ existing.remove(); return; }
+      closeAllPopovers();
+      var pop = document.createElement('div');
+      pop.className = 'confirm-pop popover';
+      pop.innerHTML = '<p>Delete this board? This cannot be undone.</p>' +
+        '<div class="confirm-actions"><button class="confirm-no">Cancel</button><button class="confirm-yes">Delete</button></div>';
+      pop.querySelector('.confirm-no').addEventListener('click', function(ev){
+        ev.stopPropagation();
+        pop.remove();
+      });
+      pop.querySelector('.confirm-yes').addEventListener('click', function(ev){
+        ev.stopPropagation();
+        boards = boards.filter(function(b){ return b.id !== board.id; });
+        el.remove();
+        updateCount();
+        persist();
+      });
+      el.querySelector('.card-header-actions').appendChild(pop);
+    });
+
+    // ---- drag ----
+    var header = el.querySelector('.card-header');
+    header.addEventListener('pointerdown', function(e){
+      if(e.target.closest('.card-title, .icon-btn, .popover')) return;
+      e.preventDefault();
+      bringToFront(board, el);
+      el.classList.add('dragging');
+      var startX = e.clientX, startY = e.clientY;
+      var origX = board.x, origY = board.y;
+      header.setPointerCapture(e.pointerId);
+
+      function onMove(ev){
+        var dx = (ev.clientX - startX) / zoom, dy = (ev.clientY - startY) / zoom;
+        var nx = clamp(origX + dx, 0, CANVAS_W - board.w);
+        var ny = clamp(origY + dy, 0, CANVAS_H - board.h);
+        board.x = nx; board.y = ny;
+        el.style.left = nx + 'px';
+        el.style.top = ny + 'px';
+      }
+      function onUp(ev){
+        header.releasePointerCapture(e.pointerId);
+        header.removeEventListener('pointermove', onMove);
+        header.removeEventListener('pointerup', onUp);
+        el.classList.remove('dragging');
+        persist();
+      }
+      header.addEventListener('pointermove', onMove);
+      header.addEventListener('pointerup', onUp);
+    });
+
+    // ---- resize ----
+    var handle = el.querySelector('.resize-handle');
+    handle.addEventListener('pointerdown', function(e){
+      e.preventDefault();
+      e.stopPropagation();
+      bringToFront(board, el);
+      el.classList.add('resizing');
+      var startX = e.clientX, startY = e.clientY;
+      var origW = board.w, origH = board.h;
+      handle.setPointerCapture(e.pointerId);
+
+      function onMove(ev){
+        var dx = (ev.clientX - startX) / zoom, dy = (ev.clientY - startY) / zoom;
+        var nw = clamp(origW + dx, MIN_W, CANVAS_W - board.x);
+        var nh = clamp(origH + dy, MIN_H, CANVAS_H - board.y);
+        board.w = nw; board.h = nh;
+        el.style.width = nw + 'px';
+        el.style.height = nh + 'px';
+      }
+      function onUp(ev){
+        handle.releasePointerCapture(e.pointerId);
+        handle.removeEventListener('pointermove', onMove);
+        handle.removeEventListener('pointerup', onUp);
+        el.classList.remove('resizing');
+        persist();
+      }
+      handle.addEventListener('pointermove', onMove);
+      handle.addEventListener('pointerup', onUp);
+    });
+
+    el.addEventListener('pointerdown', function(){ bringToFront(board, el); }, {capture:true});
+
+    return el;
+  }
+
+  function closeAllPopovers(){
+    document.querySelectorAll('.popover').forEach(function(p){ p.remove(); });
+  }
+
+  function renderAll(){
+    canvas.innerHTML = '';
+    boards.filter(function(b){ return !b.completed; }).forEach(function(board){
+      canvas.appendChild(createCard(board));
+    });
+    updateCount();
+    updateArchiveUI();
+  }
+
+  function addBoard(){
+    var scrollLeft = canvasScroll.scrollLeft / zoom, scrollTop = canvasScroll.scrollTop / zoom;
+    var count = boards.length;
+    var x = clamp(scrollLeft + 50 + (count % 6) * 26, 0, CANVAS_W - 300);
+    var y = clamp(scrollTop + 50 + (count % 6) * 26, 0, CANVAS_H - 260);
+    zCounter += 1;
+    boards.push({
+      id: uid(), title: "New board", color: HUES[count % HUES.length].name,
+      description: "",
+      completed: false,
+      x: x, y: y, w: 290, h: 260, z: zCounter,
+      tasks: []
+    });
+    renderAll();
+    persist();
+  }
+
+  function wireArmedDelete(btn, onConfirm){
+    var armed = false;
+    var timer = null;
+    btn.addEventListener('pointerdown', function(e){ e.stopPropagation(); });
+    btn.addEventListener('click', function(e){
+      e.stopPropagation();
+      if(!armed){
+        armed = true;
+        btn.classList.add('armed');
+        btn.title = 'Click again to permanently delete';
+        clearTimeout(timer);
+        timer = setTimeout(function(){ armed = false; btn.classList.remove('armed'); btn.title = 'Delete board permanently'; }, 2500);
+        return;
+      }
+      clearTimeout(timer);
+      onConfirm();
+    });
+  }
+
+  var archiveAnchor = document.getElementById('archive-anchor');
+  var archiveBtn = document.getElementById('archive-btn');
+  var archiveCountEl = document.getElementById('archive-count');
+
+  function updateArchiveUI(){
+    var archived = boards.filter(function(b){ return b.completed; });
+    archiveCountEl.textContent = archived.length;
+    archiveBtn.hidden = archived.length === 0;
+    if(!archived.length){
+      var pop = archiveAnchor.querySelector('.archive-pop');
+      if(pop) pop.remove();
+    }
+  }
+
+  function buildArchiveItem(board){
+    var li = document.createElement('li');
+    li.className = 'archive-item';
+
+    var dot = document.createElement('span');
+    dot.className = 'dot';
+    dot.style.background = hueValue(board.color);
+
+    var title = document.createElement('span');
+    title.className = 'title';
+    title.textContent = board.title;
+
+    var restoreBtn = document.createElement('button');
+    restoreBtn.type = 'button';
+    restoreBtn.title = 'Restore board';
+    restoreBtn.setAttribute('aria-label', 'Restore board');
+    restoreBtn.innerHTML = '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8h8a4 4 0 0 1 0 8H9"/><path d="M9 5 6 8l3 3"/></svg>';
+    restoreBtn.addEventListener('pointerdown', function(e){ e.stopPropagation(); });
+    restoreBtn.addEventListener('click', function(e){
+      e.stopPropagation();
+      board.completed = false;
+      renderAll();
+      persist();
+      renderArchivePop();
+    });
+
+    var deleteBtn = document.createElement('button');
+    deleteBtn.type = 'button';
+    deleteBtn.className = 'archived-delete-btn';
+    deleteBtn.title = 'Delete board permanently';
+    deleteBtn.setAttribute('aria-label', 'Delete board permanently');
+    deleteBtn.textContent = '×';
+    wireArmedDelete(deleteBtn, function(){
+      boards = boards.filter(function(b){ return b.id !== board.id; });
+      renderAll();
+      persist();
+      renderArchivePop();
+    });
+
+    li.appendChild(dot);
+    li.appendChild(title);
+    li.appendChild(restoreBtn);
+    li.appendChild(deleteBtn);
+    return li;
+  }
+
+  function renderArchivePop(){
+    var pop = archiveAnchor.querySelector('.archive-pop');
+    if(!pop) return;
+    var archived = boards.filter(function(b){ return b.completed; });
+    if(!archived.length){ pop.remove(); return; }
+    var list = pop.querySelector('.archive-list');
+    list.innerHTML = '';
+    archived.forEach(function(b){ list.appendChild(buildArchiveItem(b)); });
+  }
+
+  archiveBtn.addEventListener('pointerdown', function(e){ e.stopPropagation(); });
+  archiveBtn.addEventListener('click', function(e){
+    e.stopPropagation();
+    var existing = archiveAnchor.querySelector('.archive-pop');
+    if(existing){ existing.remove(); return; }
+    closeAllPopovers();
+    var pop = document.createElement('div');
+    pop.className = 'archive-pop popover';
+    pop.innerHTML = '<div class="completed-pop-header"><span>Completed boards</span></div><ul class="archive-list"></ul>';
+    archiveAnchor.appendChild(pop);
+    renderArchivePop();
+  });
+
+  document.getElementById('add-btn').addEventListener('click', addBoard);
+  document.getElementById('reset-btn').addEventListener('click', function(e){
+    e.stopPropagation();
+    var anchor = document.getElementById('reset-anchor');
+    var existing = anchor.querySelector('.confirm-pop');
+    if(existing){ existing.remove(); return; }
+    closeAllPopovers();
+    var pop = document.createElement('div');
+    pop.className = 'confirm-pop popover';
+    pop.innerHTML = '<p>Reset to the sample boards? Your current boards will be lost.</p>' +
+      '<div class="confirm-actions"><button class="confirm-no">Cancel</button><button class="confirm-yes">Reset</button></div>';
+    pop.querySelector('.confirm-no').addEventListener('click', function(ev){
+      ev.stopPropagation();
+      pop.remove();
+    });
+    pop.querySelector('.confirm-yes').addEventListener('click', function(ev){
+      ev.stopPropagation();
+      boards = defaultBoards();
+      zCounter = 10;
+      renderAll();
+      persist();
+    });
+    anchor.appendChild(pop);
+  });
+  document.addEventListener('pointerdown', function(e){
+    if(e.target.closest('.popover, .color-btn, .delete-btn, #reset-btn')) return;
+    closeAllPopovers();
+  });
+
+  function wireExportButton(btn, runExport, busyLabel){
+    btn.addEventListener('click', function(){
+      var original = btn.textContent;
+      btn.disabled = true;
+      btn.textContent = busyLabel;
+      Promise.resolve(runExport()).catch(function(){}).then(function(){
+        btn.disabled = false;
+        btn.textContent = original;
+      });
+    });
+  }
+  wireExportButton(document.getElementById('export-btn'), exportPdf, 'Exporting…');
+  wireExportButton(document.getElementById('export-json-btn'), exportJson, 'Exporting…');
+
+  var importAnchor = document.getElementById('import-anchor');
+  var importInput = document.getElementById('import-input');
+
+  function showImportMessage(message){
+    var existing = importAnchor.querySelector('.confirm-pop');
+    if(existing) existing.remove();
+    closeAllPopovers();
+    var pop = document.createElement('div');
+    pop.className = 'confirm-pop popover';
+    pop.innerHTML = '<p>' + message + '</p><div class="confirm-actions"><button class="confirm-no">OK</button></div>';
+    pop.querySelector('.confirm-no').addEventListener('click', function(ev){
+      ev.stopPropagation();
+      pop.remove();
+    });
+    importAnchor.appendChild(pop);
+  }
+
+  document.getElementById('import-btn').addEventListener('click', function(){
+    importInput.value = '';
+    importInput.click();
+  });
+
+  importInput.addEventListener('change', function(){
+    var file = importInput.files && importInput.files[0];
+    if(!file) return;
+    var reader = new FileReader();
+    reader.onload = function(){
+      var parsed;
+      try{ parsed = JSON.parse(String(reader.result)); }
+      catch(e){ showImportMessage('That file isn&rsquo;t valid JSON.'); return; }
+      if(!parsed || !Array.isArray(parsed.boards) || !parsed.boards.length){
+        showImportMessage('That file doesn&rsquo;t look like a Scatterboard export.');
+        return;
+      }
+      var incoming = parsed.boards.map(sanitizeImportedBoard);
+
+      var existing = importAnchor.querySelector('.confirm-pop');
+      if(existing) existing.remove();
+      closeAllPopovers();
+      var pop = document.createElement('div');
+      pop.className = 'confirm-pop popover';
+      pop.innerHTML = '<p>Import ' + incoming.length + (incoming.length === 1 ? ' board' : ' boards') + '? This replaces your current boards.</p>' +
+        '<div class="confirm-actions"><button class="confirm-no">Cancel</button><button class="confirm-yes">Import</button></div>';
+      pop.querySelector('.confirm-no').addEventListener('click', function(ev){
+        ev.stopPropagation();
+        pop.remove();
+      });
+      pop.querySelector('.confirm-yes').addEventListener('click', function(ev){
+        ev.stopPropagation();
+        boards = incoming;
+        zCounter = boards.length + 1;
+        renderAll();
+        persist();
+        pop.remove();
+      });
+      importAnchor.appendChild(pop);
+    };
+    reader.onerror = function(){ showImportMessage('Could not read that file.'); };
+    reader.readAsText(file);
+  });
+
+  initTheme();
+  initDescToggle();
+  initZoom();
+
+  var saved = load();
+  if(saved){
+    boards = saved.boards;
+    zCounter = saved.z || 10;
+  } else {
+    boards = defaultBoards();
+  }
+  renderAll();
+})();
+</script>
+</body>
+</html>

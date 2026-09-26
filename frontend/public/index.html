@@ -1,0 +1,97 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Scatterboard</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<div class="toolbar">
+  <div class="brand">
+    <h1>Scatterboard</h1>
+    <p>Drag by the header, resize from the corner &mdash; everything saves to the server.</p>
+  </div>
+  <div class="toolbar-actions">
+    <span class="count-pill" id="board-count">0 boards</span>
+    <span class="zoom-controls" role="group" aria-label="Canvas zoom">
+      <button class="zoom-step" id="zoom-out-btn" type="button" title="Zoom out (Ctrl/Cmd &minus;)" aria-label="Zoom out">&minus;</button>
+      <button class="zoom-level" id="zoom-level-btn" type="button" title="Reset zoom to 100% (Ctrl/Cmd 0)" aria-label="Reset zoom to 100%">100%</button>
+      <button class="zoom-step" id="zoom-in-btn" type="button" title="Zoom in (Ctrl/Cmd +)" aria-label="Zoom in">+</button>
+    </span>
+    <button class="theme-toggle" id="desc-toggle" title="Show/hide descriptions" aria-label="Toggle board descriptions">
+      <svg class="icon-eye" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
+      <svg class="icon-eye-off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3l18 18M10.6 10.6a3 3 0 0 0 4.24 4.24M9.9 5.1A10.4 10.4 0 0 1 12 5c6.4 0 10 7 10 7a17.6 17.6 0 0 1-3.2 4.2M6.2 6.2A17.7 17.7 0 0 0 2 12s3.6 7 10 7c1.3 0 2.5-.2 3.6-.6"/></svg>
+    </button>
+    <button class="theme-toggle" id="theme-toggle" title="Switch theme" aria-label="Switch between light and dark theme">
+      <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4.5"/><path d="M12 2.5v2.5M12 19v2.5M4.6 4.6l1.8 1.8M17.6 17.6l1.8 1.8M2.5 12H5M19 12h2.5M4.6 19.4l1.8-1.8M17.6 6.4l1.8-1.8"/></svg>
+      <svg class="icon-moon" viewBox="0 0 24 24" fill="currentColor"><path d="M20 14.5A8.5 8.5 0 0 1 9.5 4 8.5 8.5 0 1 0 20 14.5Z"/></svg>
+    </button>
+    <span class="anchor" id="archive-anchor">
+      <button class="btn btn-icon" id="archive-btn" type="button" hidden title="Completed boards" aria-label="View completed boards">
+        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="10" r="7.3"/><path d="M6.7 10.2l2 2.1 4.4-4.6"/></svg>
+        <span class="icon-badge" id="archive-count">0</span>
+      </button>
+    </span>
+    <span class="anchor" id="clear-anchor">
+      <button class="btn btn-icon" id="clear-btn" type="button" title="Clear all boards" aria-label="Clear all boards">
+        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h12"/><path d="M8 6V4.6c0-.6.5-1.1 1.1-1.1h1.8c.6 0 1.1.5 1.1 1.1V6"/><path d="M6 6l.6 9.4c0 .6.5 1 1.1 1h4.6c.6 0 1-.4 1.1-1L14 6"/><path d="M8.3 9v4M11.7 9v4"/></svg>
+      </button>
+    </span>
+    <span class="anchor" id="import-anchor">
+      <button class="btn btn-icon" id="import-btn" type="button" title="Import boards" aria-label="Import boards">
+        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M10 3v8.5"/><path d="M6.5 8l3.5 3.5L13.5 8"/><path d="M4 13v1.4c0 .9.7 1.6 1.6 1.6h8.8c.9 0 1.6-.7 1.6-1.6V13"/></svg>
+      </button>
+      <input type="file" id="import-input" accept="application/json,.json" hidden>
+    </span>
+    <span class="anchor" id="export-anchor">
+      <button class="btn btn-icon" id="export-menu-btn" type="button" title="Export boards" aria-label="Export boards">
+        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M10 11V2.5"/><path d="M6.5 6l3.5-3.5L13.5 6"/><path d="M4 13v1.4c0 .9.7 1.6 1.6 1.6h8.8c.9 0 1.6-.7 1.6-1.6V13"/></svg>
+      </button>
+    </span>
+    <button class="btn btn-icon btn-primary" id="add-btn" type="button" title="New task list" aria-label="New task list">
+      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10 4v12M4 10h12"/></svg>
+    </button>
+  </div>
+</div>
+
+<div class="canvas-scroll" id="canvas-scroll">
+  <div class="canvas-zoom" id="canvas-zoom">
+    <div class="canvas" id="canvas"></div>
+  </div>
+</div>
+
+<div class="chat-modal" id="chat-modal" hidden>
+  <div class="chat-modal-dialog">
+    <div class="chat-modal-header">
+      <div class="chat-modal-titles">
+        <span class="chat-modal-dot" id="chat-modal-dot"></span>
+        <div>
+          <h2 id="chat-modal-title">Board</h2>
+          <p>Scoped to this board &mdash; remembers this conversation</p>
+        </div>
+      </div>
+      <div class="chat-modal-header-actions">
+        <button class="icon-btn" id="chat-new-btn" type="button" title="Start a new chat" aria-label="Start a new chat">
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M10 4.2v11.6M4.2 10h11.6"/></svg>
+        </button>
+        <span class="anchor" id="chat-history-anchor">
+          <button class="icon-btn" id="chat-history-btn" type="button" title="Previous chats" aria-label="Previous chats">
+            <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="10" r="7.3"/><path d="M10 6v4.3l3 1.9"/></svg>
+          </button>
+        </span>
+        <button class="icon-btn chat-modal-close" id="chat-modal-close" type="button" aria-label="Close chat">&times;</button>
+      </div>
+    </div>
+    <div class="chat-modal-body" id="chat-modal-body"></div>
+    <form class="chat-modal-input" id="chat-modal-form">
+      <textarea id="chat-modal-textarea" rows="1" placeholder="Ask about this board&hellip;" aria-label="Chat message"></textarea>
+      <button type="submit" class="btn btn-primary" id="chat-modal-send">Send</button>
+    </form>
+  </div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>

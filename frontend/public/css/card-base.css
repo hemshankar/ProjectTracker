@@ -1,0 +1,281 @@
+/* ---------- card ---------- */
+.card{
+  position:absolute;
+  display:flex;
+  flex-direction:column;
+  min-width:220px;
+  min-height:180px;
+  background:var(--surface);
+  border:1px solid var(--border);
+  border-radius:10px;
+  box-shadow:0 6px 16px var(--shadow);
+  overflow:hidden;
+}
+.card.dragging, .card.resizing{
+  box-shadow:0 14px 32px var(--shadow-drag);
+  cursor:grabbing;
+}
+/* Phase 7 glow taxonomy — one ring color per state, most-actionable wins
+   (needs_approval > needs_reply > processing > done > none), applied from
+   the single `board.glow` field the backend derives and streams down. */
+@keyframes card-processing-pulse{
+  0%, 100%{ box-shadow:0 6px 16px var(--shadow), 0 0 0 2px var(--processing); }
+  50%{ box-shadow:0 6px 16px var(--shadow), 0 0 0 2px transparent; }
+}
+@keyframes card-needs-reply-pulse{
+  0%, 100%{ box-shadow:0 6px 16px var(--shadow), 0 0 0 2.5px var(--glow-reply); }
+  50%{ box-shadow:0 6px 16px var(--shadow), 0 0 0 2.5px transparent; }
+}
+@keyframes card-needs-approval-pulse{
+  0%, 100%{ box-shadow:0 6px 16px var(--shadow), 0 0 0 3px var(--glow-approval); }
+  50%{ box-shadow:0 6px 16px var(--shadow), 0 0 0 3px transparent; }
+}
+.card.glow-processing{
+  animation: card-processing-pulse 1.6s ease-in-out infinite;
+}
+.card.glow-done{
+  box-shadow:0 6px 16px var(--shadow), 0 0 0 2px var(--accent);
+}
+.card.glow-needs-reply{
+  animation: card-needs-reply-pulse 1.4s ease-in-out infinite;
+}
+.card.glow-needs-approval{
+  animation: card-needs-approval-pulse 1s ease-in-out infinite;
+}
+.card.run-stopped-budget{
+  box-shadow:0 6px 16px var(--shadow), 0 0 0 2px var(--danger);
+}
+/* The ring color alone doesn't say why a board is glowing — this banner
+   spells it out in words, right under the topbar so it's visible without
+   opening the board's chat. */
+.glow-banner{
+  flex:none;
+  display:block;
+  width:100%;
+  border:none;
+  font:500 12px/1 "Public Sans", sans-serif;
+  text-align:center;
+  padding:6px 10px;
+  cursor:pointer;
+  color:var(--accent-ink);
+}
+.glow-banner:hover{ filter:brightness(1.08); }
+.glow-banner-processing{ background:var(--processing); }
+.glow-banner-done{ background:var(--accent); }
+.glow-banner-needs-reply{ background:var(--glow-reply); color:#000000; }
+.glow-banner-needs-approval{ background:var(--glow-approval); }
+.start-btn:hover{ color:var(--accent); background:var(--surface-2); }
+.stop-btn:hover{ color:var(--danger); background:var(--surface-2); }
+.task.running .task-text{ color:var(--ink-soft); font-style:italic; }
+.task.running .task-check{ opacity:0.45; pointer-events:none; }
+.task.queued .task-text{ color:var(--ink-soft); }
+.task.queued .task-check{ opacity:0.45; pointer-events:none; }
+@keyframes task-needs-input-pulse{
+  0%, 100%{ box-shadow:0 0 0 1.5px var(--processing); background:var(--surface-2); }
+  50%{ box-shadow:0 0 0 1.5px transparent; background:transparent; }
+}
+.task.needs-input{
+  border-radius:6px;
+  animation: task-needs-input-pulse 1.4s ease-in-out infinite;
+}
+.task.manual-pending{
+  border-radius:6px;
+  box-shadow:0 0 0 1.5px var(--processing);
+}
+@keyframes task-needs-reply-pulse{
+  0%, 100%{ box-shadow:0 0 0 1.5px var(--glow-reply); background:var(--surface-2); }
+  50%{ box-shadow:0 0 0 1.5px transparent; background:transparent; }
+}
+.task.needs-reply{
+  border-radius:6px;
+  animation: task-needs-reply-pulse 1.4s ease-in-out infinite;
+}
+@keyframes task-needs-approval-pulse{
+  0%, 100%{ box-shadow:0 0 0 1.5px var(--glow-approval); background:var(--surface-2); }
+  50%{ box-shadow:0 0 0 1.5px transparent; background:transparent; }
+}
+.task.needs-approval{
+  border-radius:6px;
+  animation: task-needs-approval-pulse 1s ease-in-out infinite;
+}
+.task-queued-badge{
+  font-size:11px;
+  color:var(--ink-soft);
+  padding:2px 6px;
+  border-radius:6px;
+  background:var(--surface-2);
+  flex:none;
+}
+.card-topbar{
+  height:4px;
+  background:var(--card-hue);
+  flex:none;
+}
+.card-header{
+  display:flex;
+  align-items:flex-start;
+  gap:8px;
+  padding:10px 8px 8px 12px;
+  cursor:grab;
+  flex:none;
+  user-select:none;
+}
+.card-header:active{ cursor:grabbing; }
+.card-title{
+  flex:1;
+  font-weight:600;
+  font-size:14.5px;
+  line-height:1.3;
+  padding:2px 4px;
+  border-radius:5px;
+  cursor:grab;
+  min-width:0;
+  word-break:break-word;
+}
+.card-title:active{ cursor:grabbing; }
+.card-title:hover{ background:var(--surface-2); }
+.card-title[contenteditable="true"]{
+  cursor:text;
+  outline:2px solid var(--accent);
+  outline-offset:0;
+  background:var(--surface-2);
+}
+.card-title a, .card-subtitle a, .task-text a{
+  color:var(--card-hue);
+  text-decoration:underline;
+  cursor:pointer;
+}
+.card-subtitle{
+  font-size:12px;
+  line-height:1.35;
+  color:var(--ink-soft);
+  padding:0 12px 8px 12px;
+  margin-top:-4px;
+  border-radius:5px;
+  cursor:text;
+  word-break:break-word;
+}
+.card-subtitle:hover{ background:var(--surface-2); }
+.card-subtitle:focus{
+  outline:2px solid var(--accent);
+  outline-offset:0;
+  background:var(--surface-2);
+}
+.card-subtitle:empty:before{
+  content:attr(data-placeholder);
+  color:var(--ink-faint);
+}
+.card-header-actions{
+  display:flex;
+  align-items:center;
+  gap:2px;
+  flex:none;
+  position:relative;
+}
+.icon-btn{
+  width:24px; height:24px;
+  display:flex; align-items:center; justify-content:center;
+  border:none; background:transparent; border-radius:6px;
+  color:var(--ink-faint);
+  cursor:pointer;
+  font-size:15px;
+  line-height:1;
+}
+.icon-btn:hover{ background:var(--surface-2); color:var(--ink); }
+.icon-btn:focus-visible{ outline:2px solid var(--accent); outline-offset:1px; }
+.icon-btn.danger:hover{ color:var(--danger); }
+.icon-btn.complete-btn:hover{ color:var(--accent); }
+.color-dot{
+  width:11px; height:11px; border-radius:50%;
+  background:var(--card-hue);
+  border:1px solid rgba(0,0,0,0.08);
+  display:flex; align-items:center; justify-content:center;
+  font-size:7.5px; font-weight:800; line-height:1;
+  color:var(--ink);
+  /* Halo trick so a single-letter label initial stays legible against
+     any of the pastel hues, in either theme, without per-hue tuning. */
+  text-shadow:0 0 2px var(--surface), 0 0 2px var(--surface), 0 0 2px var(--surface);
+}
+.color-pop{
+  position:absolute;
+  top:26px; right:0;
+  background:var(--surface);
+  border:1px solid var(--border);
+  border-radius:8px;
+  box-shadow:0 8px 20px var(--shadow);
+  padding:7px;
+  display:flex;
+  flex-direction:column;
+  gap:8px;
+  width:152px;
+  z-index:50;
+}
+.color-swatch-grid{
+  display:grid;
+  grid-template-columns:repeat(3, 20px);
+  gap:6px;
+}
+.color-swatch-grid button{
+  width:20px; height:20px; border-radius:50%;
+  border:1px solid rgba(0,0,0,0.1);
+  cursor:pointer;
+  padding:0;
+}
+.color-swatch-grid button:focus-visible{ outline:2px solid var(--accent); outline-offset:2px; }
+.color-swatch-grid.locked button{ opacity:0.4; cursor:not-allowed; }
+.color-lock-note{
+  font-size:10.5px;
+  color:var(--ink-faint);
+  line-height:1.3;
+}
+.label-pop-section{
+  border-top:1px solid var(--border);
+  padding-top:7px;
+  display:flex;
+  flex-direction:column;
+  gap:6px;
+}
+.label-pop-list{
+  display:flex;
+  flex-wrap:wrap;
+  gap:4px;
+  max-height:96px;
+  overflow-y:auto;
+}
+.label-chip{
+  font-size:11px;
+  padding:3px 7px;
+  border-radius:999px;
+  border:1px solid var(--border);
+  background:var(--surface-2);
+  color:var(--ink-soft);
+  cursor:pointer;
+}
+.label-chip:hover{ background:var(--surface); color:var(--ink); }
+.label-chip:focus-visible{ outline:2px solid var(--accent); outline-offset:1px; }
+.label-chip.active{
+  background:var(--accent); color:var(--accent-ink); border-color:var(--accent);
+}
+.label-pop-new{
+  display:flex;
+  gap:4px;
+}
+.label-pop-new input{
+  flex:1; min-width:0;
+  font-size:11px;
+  padding:4px 6px;
+  border-radius:6px;
+  border:1px solid var(--border);
+  background:var(--surface);
+  color:var(--ink);
+}
+.label-pop-new button{
+  font-size:13px; font-weight:700;
+  width:22px; height:22px; flex:none;
+  border-radius:6px;
+  border:1px solid var(--border);
+  background:var(--surface-2);
+  color:var(--ink-soft);
+  cursor:pointer;
+}
+.label-pop-new button:hover{ background:var(--surface); color:var(--accent); }

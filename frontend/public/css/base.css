@@ -1,0 +1,100 @@
+@import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=Public+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500&display=swap');
+
+/* Without !important, `.chat-modal{ display:flex }` below beats the
+   default [hidden] rule and the modal stays an invisible full-screen
+   overlay (still `position:fixed; inset:0`) even while "hidden". */
+[hidden]{ display:none !important; }
+
+:root{
+  --canvas-bg:   #E7ECF1;
+  --canvas-dot:  #CBD5DE;
+  --surface:     #FFFFFF;
+  --surface-2:   #F3F6F8;
+  --border:      #D7DEE5;
+  --ink:         #1C232D;
+  --ink-soft:    #626E7C;
+  --ink-faint:   #97A2AE;
+  --accent:      #34655F;
+  --accent-ink:  #FFFFFF;
+  --danger:      #B4483C;
+  --processing:  #B08A2E;
+  --glow-reply:    #3A6EA5;
+  --glow-approval: #8148A0;
+  --shadow:      rgba(24,32,42,0.14);
+  --shadow-drag: rgba(24,32,42,0.24);
+  --backdrop:    rgba(20,26,33,0.5);
+
+  --hue-blue:  #3E6690;
+  --hue-sage:  #587555;
+  --hue-clay:  #A15E37;
+  --hue-mauve: #83557A;
+  --hue-ochre: #93732A;
+  --hue-slate: #545F6E;
+}
+
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --canvas-bg:  #12161B;
+    --canvas-dot: #232B33;
+    --surface:    #1B2129;
+    --surface-2:  #212831;
+    --border:     #2C3540;
+    --ink:        #E8ECF1;
+    --ink-soft:   #9AA6B3;
+    --ink-faint:  #6B7684;
+    --accent:     #6FBBAF;
+    --accent-ink: #0E1613;
+    --danger:     #E08C7F;
+    --processing: #D8B15C;
+    --glow-reply:    #6FA0D8;
+    --glow-approval: #B98FE0;
+    --shadow:       rgba(0,0,0,0.45);
+    --shadow-drag:  rgba(0,0,0,0.6);
+    --backdrop:     rgba(0,0,0,0.65);
+
+    --hue-blue:  #7FA6CC;
+    --hue-sage:  #8FB088;
+    --hue-clay:  #CC9569;
+    --hue-mauve: #C193B7;
+    --hue-ochre: #CBAA5C;
+    --hue-slate: #97A3B2;
+  }
+}
+:root[data-theme="dark"]{
+  --canvas-bg:  #12161B;
+  --canvas-dot: #232B33;
+  --surface:    #1B2129;
+  --surface-2:  #212831;
+  --border:     #2C3540;
+  --ink:        #E8ECF1;
+  --ink-soft:   #9AA6B3;
+  --ink-faint:  #6B7684;
+  --accent:     #6FBBAF;
+  --accent-ink: #0E1613;
+  --danger:     #E08C7F;
+  --processing: #D8B15C;
+  --glow-reply:    #6FA0D8;
+  --glow-approval: #B98FE0;
+  --shadow:       rgba(0,0,0,0.45);
+  --shadow-drag:  rgba(0,0,0,0.6);
+  --backdrop:     rgba(0,0,0,0.65);
+
+  --hue-blue:  #7FA6CC;
+  --hue-sage:  #8FB088;
+  --hue-clay:  #CC9569;
+  --hue-mauve: #C193B7;
+  --hue-ochre: #CBAA5C;
+  --hue-slate: #97A3B2;
+}
+
+*{ box-sizing:border-box; }
+html, body{ margin:0; padding:0; }
+body{
+  background:var(--canvas-bg);
+  color:var(--ink);
+  font-family:'Public Sans', system-ui, sans-serif;
+  height:100dvh;
+  display:flex;
+  flex-direction:column;
+  overflow:hidden;
+}

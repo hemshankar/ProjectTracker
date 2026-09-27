@@ -1,0 +1,145 @@
+/* ---------- sharing modal ---------- */
+.share-modal-dialog{ width:min(440px, 100%); height:auto; max-height:min(560px, 100%); }
+.share-modal-body{ padding:18px 20px; gap:14px; }
+.share-form{ display:flex; gap:8px; flex-wrap:wrap; }
+.share-form input{
+  flex:1 1 180px;
+  min-width:0;
+  padding:8px 10px;
+  border-radius:8px;
+  border:1px solid var(--border);
+  background:var(--surface-2);
+  color:var(--ink);
+  font-size:13px;
+}
+.share-form select{
+  padding:8px 10px;
+  border-radius:8px;
+  border:1px solid var(--border);
+  background:var(--surface-2);
+  color:var(--ink);
+  font-size:13px;
+}
+.share-form input:focus, .share-form select:focus{ outline:2px solid var(--accent); outline-offset:0; }
+.share-error{
+  margin:0;
+  font-size:12.5px;
+  color:var(--danger);
+}
+.share-list{
+  list-style:none;
+  margin:0;
+  padding:0;
+  display:flex;
+  flex-direction:column;
+  gap:2px;
+}
+.share-item{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  padding:8px 4px;
+  border-bottom:1px solid var(--border);
+  font-size:13px;
+}
+.share-item-email{
+  flex:1;
+  min-width:0;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+  color:var(--ink);
+}
+.share-item-role{
+  font-family:'IBM Plex Mono', monospace;
+  font-size:10px;
+  font-weight:600;
+  text-transform:uppercase;
+  color:var(--ink-soft);
+  background:var(--surface-2);
+  border:1px solid var(--border);
+  border-radius:999px;
+  padding:2px 8px;
+}
+.share-item-remove{
+  border:none;
+  background:transparent;
+  color:var(--ink-faint);
+  cursor:pointer;
+  font-size:16px;
+  line-height:1;
+  padding:2px 4px;
+}
+.share-item-remove:hover{ color:var(--danger); }
+.share-list-empty, .share-list-loading{
+  padding:8px 4px;
+  font-size:12.5px;
+  color:var(--ink-soft);
+}
+
+/* ---------- task detail modal ---------- */
+.task-detail-modal-dialog{ width:90vw; height:90vh; }
+.task-detail-counts{
+  margin:0 0 12px;
+  padding:6px 10px;
+  border-radius:8px;
+  background:var(--surface-2);
+  color:var(--ink-soft);
+  font-size:12px;
+}
+.task-detail-collapsible{
+  margin-top:14px;
+  padding:10px 12px;
+  border:1px solid var(--border);
+  border-radius:10px;
+  background:var(--surface-2);
+}
+.task-detail-collapsible summary{
+  cursor:pointer;
+  font-size:13px;
+  font-weight:600;
+  color:var(--ink);
+}
+.task-detail-collapsible summary::marker{ color:var(--ink-soft); }
+.task-detail-collapsible[open] summary{ margin-bottom:10px; }
+.subagent-run-card{
+  padding:10px;
+  border-radius:8px;
+  background:var(--surface);
+  border:1px solid var(--border);
+  margin-bottom:8px;
+}
+.subagent-run-card:last-child{ margin-bottom:0; }
+.subagent-run-header{
+  font-size:12.5px;
+  font-weight:600;
+  color:var(--ink);
+  margin-bottom:4px;
+}
+.subagent-run-tools{
+  font-size:11.5px;
+  color:var(--ink-soft);
+  margin-bottom:6px;
+}
+.transcript-list{ display:flex; flex-direction:column; gap:6px; }
+.transcript-entry{
+  display:flex;
+  gap:6px;
+  font-size:12px;
+  line-height:1.5;
+  color:var(--ink);
+}
+.transcript-role-label{
+  flex:0 0 auto;
+  min-width:78px;
+  color:var(--ink-soft);
+  text-transform:uppercase;
+  font-size:10px;
+  letter-spacing:.03em;
+  padding-top:2px;
+}
+.transcript-text{ flex:1 1 auto; white-space:pre-wrap; word-break:break-word; }
+.transcript-role-tool_call .transcript-text, .transcript-role-tool_result .transcript-text{
+  font-family:ui-monospace, 'SF Mono', monospace;
+  font-size:11.5px;
+}

@@ -1,0 +1,197 @@
+/* ---------- identity: login screen ---------- */
+.login-screen{
+  position:fixed;
+  inset:0;
+  z-index:3000;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  background:var(--canvas-bg);
+}
+.login-card{
+  width:min(360px, calc(100vw - 40px));
+  padding:32px 28px;
+  text-align:center;
+  background:var(--surface);
+  border:1px solid var(--border);
+  border-radius:16px;
+  box-shadow:0 24px 64px var(--shadow-drag);
+}
+.login-card h1{
+  font-family:'Fraunces', serif;
+  font-weight:600;
+  font-size:24px;
+  margin:0 0 8px;
+}
+.login-card p{
+  margin:0 0 20px;
+  font-size:13.5px;
+  color:var(--ink-soft);
+  line-height:1.5;
+}
+.login-card .btn{ width:100%; justify-content:center; }
+.login-card .btn svg{ flex:none; }
+
+/* ---------- identity: agent switcher ---------- */
+.agent-switcher-btn{
+  gap:8px;
+  color:var(--ink);
+}
+.agent-switcher-btn svg{ flex:none; color:var(--ink-soft); }
+#agent-switcher-label{
+  max-width:180px;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.agent-switcher-pop{
+  position:absolute;
+  top:38px; left:0;
+  width:220px;
+  background:var(--surface);
+  border:1px solid var(--border);
+  border-radius:8px;
+  box-shadow:0 8px 20px var(--shadow);
+  padding:6px;
+  z-index:1500;
+}
+.agent-switcher-list{ list-style:none; margin:0; padding:0; }
+.agent-switcher-item{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:8px;
+  width:100%;
+  text-align:left;
+  padding:7px 8px;
+  border:none;
+  background:transparent;
+  border-radius:6px;
+  cursor:pointer;
+  color:var(--ink);
+  font-size:12.5px;
+  font-weight:600;
+}
+.agent-switcher-item:hover{ background:var(--surface-2); }
+.agent-switcher-item.active{ background:var(--surface-2); color:var(--accent); }
+.agent-role-badge{
+  font-family:'IBM Plex Mono', monospace;
+  font-size:9.5px;
+  font-weight:600;
+  text-transform:uppercase;
+  color:var(--ink-faint);
+}
+.agent-switcher-new{
+  display:block;
+  width:100%;
+  text-align:left;
+  margin-top:4px;
+  padding:7px 8px;
+  border:none;
+  border-top:1px solid var(--border);
+  background:transparent;
+  border-radius:6px;
+  cursor:pointer;
+  color:var(--accent);
+  font-size:12.5px;
+  font-weight:600;
+}
+.agent-switcher-new:hover{ background:var(--surface-2); }
+
+/* ---------- identity: user menu ---------- */
+.user-menu-btn{
+  width:32px; height:32px;
+  padding:0;
+  border-radius:999px;
+  border:1px solid var(--border);
+  background:var(--surface-2);
+  color:var(--ink-soft);
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  overflow:hidden;
+  cursor:pointer;
+  font-size:13px;
+  font-weight:700;
+}
+.user-menu-btn img{ width:100%; height:100%; object-fit:cover; }
+.user-menu-pop{
+  position:absolute;
+  top:38px; right:0;
+  width:210px;
+  background:var(--surface);
+  border:1px solid var(--border);
+  border-radius:8px;
+  box-shadow:0 8px 20px var(--shadow);
+  padding:10px;
+  z-index:1500;
+}
+.user-menu-info{
+  display:flex;
+  flex-direction:column;
+  gap:1px;
+  margin-bottom:8px;
+  padding-bottom:8px;
+  border-bottom:1px solid var(--border);
+}
+.user-menu-info strong{ font-size:13px; color:var(--ink); }
+.user-menu-info span{ font-size:11.5px; color:var(--ink-soft); }
+.user-menu-signout{
+  width:100%;
+  text-align:left;
+  padding:6px 4px;
+  border:none;
+  background:transparent;
+  border-radius:6px;
+  cursor:pointer;
+  color:var(--danger);
+  font-size:12.5px;
+  font-weight:600;
+}
+.user-menu-signout:hover{ background:var(--surface-2); }
+
+/* ---------- identity: create-agent modal ---------- */
+.agent-create-modal{
+  position:fixed;
+  inset:0;
+  z-index:2500;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  padding:20px;
+  background:var(--backdrop);
+}
+.agent-create-dialog{
+  width:min(360px, 100%);
+  padding:24px;
+  background:var(--surface);
+  border:1px solid var(--border);
+  border-radius:16px;
+  box-shadow:0 24px 64px var(--shadow-drag);
+}
+.agent-create-dialog h2{
+  margin:0 0 6px;
+  font-family:'Fraunces', serif;
+  font-weight:600;
+  font-size:18px;
+}
+.agent-create-dialog p{
+  margin:0 0 16px;
+  font-size:12.5px;
+  color:var(--ink-soft);
+  line-height:1.5;
+}
+.agent-create-dialog form{ display:flex; flex-direction:column; gap:10px; }
+.agent-create-dialog input, .agent-create-dialog textarea{
+  min-width:0;
+  padding:8px 10px;
+  border-radius:8px;
+  border:1px solid var(--border);
+  background:var(--surface-2);
+  color:var(--ink);
+  font-size:13px;
+  font-family:inherit;
+  resize:vertical;
+}
+.agent-create-dialog input:focus, .agent-create-dialog textarea:focus{ outline:2px solid var(--accent); outline-offset:0; }
+.agent-create-dialog button{ align-self:flex-start; }

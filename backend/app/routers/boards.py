@@ -27,7 +27,7 @@ from ..models import (
 )
 from ..models_tools import BoardBudgetUpdate
 from ..pdf_export import build_pdf
-from ..services import audit_service, chats_service, labels_service, task_activity_service, tasks_service
+from ..services import audit_service, chats_service, labels_service, observability, task_activity_service, tasks_service
 
 BOARD_STARTABLE_STATUSES = ("idle", "stopped", "failed", "blocked", "done")
 
@@ -82,6 +82,7 @@ async def create_board(payload: BoardCreate, user: dict = Depends(get_current_us
         "stopRequested": False,
         "statusReason": None,
         "budgetCapUsd": None,
+        "glow": "none",
         "createdAt": now_ms(),
         "updatedAt": now_ms(),
     }
@@ -318,6 +319,14 @@ async def get_task_messages(board_id: str, task_id: str, user: dict = Depends(re
 @router.get("/{board_id}/tasks/{task_id}/activity")
 async def get_task_activity(board_id: str, task_id: str, user: dict = Depends(require_board_access("viewer"))):
     return await task_activity_service.get_task_activity(board_id, task_id, user["_id"])
+
+
+@router.get("/{board_id}/audit")
+async def get_board_audit(board_id: str, _user: dict = Depends(require_board_access("viewer"))):
+    """The lighter, board-scoped Activity view (Phase 8) — any board
+    viewer/editor, not just an Agent Admin; no raw prompts, no cross-board
+    visibility. See `services.observability.list_board_audit`."""
+    return await observability.list_board_audit(board_id)
 
 
 def _find_task(board: dict, task_id: str) -> dict:

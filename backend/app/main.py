@@ -4,6 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from . import config
 from .database import boards_collection, close_client, ensure_indexes
 from .execution.events import events
+from .execution.glow import migrate_board_glow
 from .execution.registry import registry
 from .routers import agents, auth, board_shares, boards, chats, labels, settings, tools
 from .seed import default_boards
@@ -42,6 +43,7 @@ async def on_startup():
         await boards_collection.insert_many(default_boards())
     await migrate_legacy_task_statuses()
     await migrate_legacy_board_statuses()
+    await migrate_board_glow()
     # Recover boards a prior process left "running"/"queued" mid-task — see
     # reconcile_interrupted_runs for why nothing else ever revisits them.
     await reconcile_interrupted_runs()

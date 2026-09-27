@@ -59,6 +59,11 @@ class ChatMessageIn(BaseModel):
     text: str
 
 
+class ChatMessageEdit(BaseModel):
+    text: Optional[str] = None
+    payload: Optional[dict] = None
+
+
 class ImportBoard(BaseModel):
     title: Optional[str] = "Untitled board"
     description: Optional[str] = ""
@@ -123,6 +128,7 @@ def sanitize_import_board(raw: ImportBoard, index: int, z: int) -> dict:
         "stopRequested": False,
         "statusReason": None,
         "budgetCapUsd": None,
+        "glow": "none",
         "createdAt": now_ms(),
         "updatedAt": now_ms(),
     }
@@ -138,6 +144,7 @@ def board_to_json(doc: dict) -> dict:
     out.setdefault("statusReason", None)
     out.setdefault("budgetCapUsd", None)
     out.setdefault("labelId", None)
+    out.setdefault("glow", "none")
     return out
 
 

@@ -42,9 +42,34 @@ async def append_messages(board_id: str, chat_id: str, messages: List[dict]) -> 
 async def update_message_payload(board_id: str, chat_id: str, message_id: str, payload_updates: dict) -> None:
     """Atomically patches one message's `payload` fields (e.g. an
     action-request's approved/rejected status and result) via array filters —
-    same concurrent-safety rationale as `append_messages`."""
+    same concurrent-safety rationale as `append_messages`. This is the
+    in-place edit Phase 7 asks for: the message keeps its id and position in
+    the thread, it's just revised, and it gains `edited`/`editedAt` like any
+    other in-place message edit (see `edit_message`)."""
+    now = now_ms()
     sets = {f"chats.$[c].messages.$[m].payload.{k}": v for k, v in payload_updates.items()}
-    sets["updatedAt"] = now_ms()
+    sets["chats.$[c].messages.$[m].edited"] = True
+    sets["chats.$[c].messages.$[m].editedAt"] = now
+    sets["updatedAt"] = now
+    await boards_collection.update_one(
+        {"_id": board_id},
+        {"$set": sets},
+        array_filters=[{"c.id": chat_id}, {"m.id": message_id}],
+    )
+
+
+async def edit_message(board_id: str, chat_id: str, message_id: str, text: Optional[str], payload: Optional[dict]) -> None:
+    """General-purpose in-place edit for one of the agent's own prior
+    messages — e.g. revising its text, or merging new `payload` fields —
+    same array-filter mechanics as `update_message_payload`, generalized
+    beyond just the payload. There is deliberately no delete counterpart:
+    no `DELETE` route for messages exists anywhere in `routers/chats.py`."""
+    now = now_ms()
+    sets: dict = {"chats.$[c].messages.$[m].edited": True, "chats.$[c].messages.$[m].editedAt": now, "updatedAt": now}
+    if text is not None:
+        sets["chats.$[c].messages.$[m].text"] = text
+    for k, v in (payload or {}).items():
+        sets[f"chats.$[c].messages.$[m].payload.{k}"] = v
     await boards_collection.update_one(
         {"_id": board_id},
         {"$set": sets},

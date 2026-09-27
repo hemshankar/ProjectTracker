@@ -9,7 +9,7 @@ from ..chat_service import stream_reply
 from ..database import boards_collection
 from ..dependencies import get_current_user, require_board_access
 from ..execution import approval
-from ..models import ChatMessageIn
+from ..models import ChatMessageEdit, ChatMessageIn
 from ..services import audit_service, chats_service
 
 router = APIRouter(
@@ -114,6 +114,46 @@ async def send_message(
             yield f"data: {json.dumps({'done': True})}\n\n"
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+
+@router.patch("/{chat_id}/messages/{message_id}")
+async def edit_message(
+    board_id: str, chat_id: str, message_id: str, payload: ChatMessageEdit,
+    user: dict = Depends(require_board_access("editor")),
+):
+    """Revises one of the agent's own prior messages in place — e.g.
+    updating an action-request card's status after approval (see
+    `execution.approval`, which already does this via
+    `chats_service.update_message_payload`). There's no DELETE route for
+    messages anywhere in this router: the agent can create and update, but
+    never delete, one — enforced by that route simply not existing."""
+    board = await _get_board(board_id)
+    chat = next((c for c in board.get("chats", []) if c["id"] == chat_id), None)
+    if chat is None:
+        raise HTTPException(status_code=404, detail="Chat not found")
+    message = next((m for m in chat["messages"] if m.get("id") == message_id), None)
+    if message is None:
+        raise HTTPException(status_code=404, detail="Message not found")
+    if message.get("role") != "assistant":
+        raise HTTPException(status_code=400, detail="Only the agent's own messages can be edited")
+
+    before = {"id": message_id, "text": message.get("text"), "payload": message.get("payload")}
+    await chats_service.edit_message(board_id, chat_id, message_id, payload.text, payload.payload)
+    after_board = await _get_board(board_id)
+    after_chat = next(c for c in after_board.get("chats", []) if c["id"] == chat_id)
+    after_message = next(m for m in after_chat["messages"] if m.get("id") == message_id)
+
+    await audit_service.write_audit(
+        agent_id=board.get("agentId"),
+        board_id=board_id,
+        entity_type="chat_message",
+        action="update",
+        actor_type="agent",
+        actor_id=None,
+        before=before,
+        after={"id": message_id, "text": after_message.get("text"), "payload": after_message.get("payload")},
+    )
+    return after_message
 
 
 async def _resolve_action(board_id: str, chat_id: str, message_id: str, approved: bool, user: dict) -> dict:

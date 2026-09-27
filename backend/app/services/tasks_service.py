@@ -2,7 +2,7 @@ from fastapi import HTTPException
 
 from .. import task_state
 from ..database import boards_collection
-from ..execution import concurrency
+from ..execution import concurrency, glow
 from ..execution.events import events
 from ..models import TaskUpdate, now_ms, sanitize_task, task_to_json
 from . import audit_service
@@ -26,7 +26,7 @@ async def _get_board(board_id: str) -> dict:
     return doc
 
 
-async def _reopen_board_if_terminal(board_id: str, board: dict) -> None:
+async def reopen_board_if_terminal(board_id: str, board: dict) -> None:
     if board.get("status") not in _TERMINAL_BOARD_STATUSES:
         return
     reopened = await task_state.transition_board_status(board_id, _TERMINAL_BOARD_STATUSES, "idle")
@@ -51,7 +51,7 @@ async def add_task(board_id: str, task_id: str, text: str, done: bool, actor_id:
         {"_id": board_id}, {"$set": {"tasks": tasks, "updatedAt": now_ms()}}
     )
     if task["status"] == "idle":
-        await _reopen_board_if_terminal(board_id, board)
+        await reopen_board_if_terminal(board_id, board)
     await audit_service.write_audit(
         agent_id=board.get("agentId"),
         board_id=board_id,
@@ -84,7 +84,7 @@ async def update_task(board_id: str, task_id: str, payload: TaskUpdate, actor_id
         if updated_board is None:
             raise HTTPException(status_code=404, detail="Task not found")
         if new_status == "idle":
-            await _reopen_board_if_terminal(board_id, board)
+            await reopen_board_if_terminal(board_id, board)
 
     board = await _get_board(board_id)
     after = _find_task(board, task_id)
@@ -109,6 +109,7 @@ async def delete_task(board_id: str, task_id: str, actor_id: str) -> None:
     await boards_collection.update_one(
         {"_id": board_id}, {"$set": {"tasks": tasks, "updatedAt": now_ms()}}
     )
+    await glow.refresh_glow(board_id)
     await audit_service.write_audit(
         agent_id=board.get("agentId"),
         board_id=board_id,
@@ -171,6 +172,7 @@ async def clear_completed_tasks(board_id: str, actor_id: str) -> None:
     await boards_collection.update_one(
         {"_id": board_id}, {"$set": {"tasks": remaining, "updatedAt": now_ms()}}
     )
+    await glow.refresh_glow(board_id)
     for t in removed:
         await audit_service.write_audit(
             agent_id=board.get("agentId"),

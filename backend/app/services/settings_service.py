@@ -3,6 +3,7 @@ from fastapi import HTTPException
 from .. import config
 from ..database import agent_settings_collection
 from ..models_settings import (
+    LLM_CALL_RETENTION_DAYS_CEILING,
     MAX_TOOL_ROUNDS_CEILING,
     MODEL_MAX_TOKENS,
     TOOL_TYPES,
@@ -41,6 +42,15 @@ def _resolve_execution(before_doc: dict, update) -> dict:
     return {"maxToolRounds": max_rounds}
 
 
+def _resolve_llm_call_retention(days: int) -> int:
+    if not (1 <= days <= LLM_CALL_RETENTION_DAYS_CEILING):
+        raise HTTPException(
+            status_code=400,
+            detail=f"llmCallRetentionDays must be between 1 and {LLM_CALL_RETENTION_DAYS_CEILING}",
+        )
+    return days
+
+
 async def get_settings(agent_id: str) -> dict:
     doc = await agent_settings_collection.find_one({"_id": agent_id})
     if not doc:
@@ -75,6 +85,8 @@ async def update_settings(agent_id: str, payload: AgentSettingsUpdate, actor_id:
         updates["concurrency"] = {"maxConcurrentTasks": payload.concurrency.maxConcurrentTasks}
     if payload.execution is not None:
         updates["execution"] = _resolve_execution(before_doc, payload.execution)
+    if payload.llmCallRetentionDays is not None:
+        updates["llmCallRetentionDays"] = _resolve_llm_call_retention(payload.llmCallRetentionDays)
 
     if not updates:
         return settings_to_json(before_doc)

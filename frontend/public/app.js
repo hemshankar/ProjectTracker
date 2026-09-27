@@ -3,7 +3,6 @@
 
   var API = "/api";
   var THEME_KEY = "scatterboard.theme.v1";
-  var DESC_KEY = "scatterboard.descVisible.v1";
   var ZOOM_KEY = "scatterboard.zoom.v1";
   var CANVAS_W = 2600, CANVAS_H = 1600;
   var MIN_W = 220, MIN_H = 180;
@@ -60,7 +59,6 @@
       var beforeLabel = board.labelId || "";
       var afterLabel = labelId || "";
       if(beforeLabel === afterLabel){ pop.remove(); return; }
-      var beforeColor = board.color;
       // A board's color is locked to its label — picking one recolors the
       // board to match; clearing one just unlocks the swatches and leaves
       // whatever color was already showing.
@@ -71,10 +69,6 @@
       el.querySelector(".color-dot").textContent = labelInitial(board);
       pop.remove();
       apiPatch("/boards/" + board.id, {labelId: afterLabel, color: afterColor}).catch(function(){});
-      pushHistory({
-        undo: function(){ setBoardLabelAndColor(board.id, beforeLabel, beforeColor); },
-        redo: function(){ setBoardLabelAndColor(board.id, afterLabel, afterColor); }
-      });
     }
 
     function renderChips(){
@@ -175,19 +169,6 @@
     });
   }
 
-  function initDescToggle(){
-    var stored = null;
-    try{ stored = localStorage.getItem(DESC_KEY); }catch(e){}
-    if(stored === "hidden"){
-      document.documentElement.classList.add("hide-descriptions");
-    }
-    var toggle = document.getElementById("desc-toggle");
-    toggle.addEventListener("click", function(){
-      var hidden = document.documentElement.classList.toggle("hide-descriptions");
-      try{ localStorage.setItem(DESC_KEY, hidden ? "hidden" : "visible"); }catch(e){}
-    });
-  }
-
   function refreshCardHues(){
     canvas.querySelectorAll(".card").forEach(function(el){
       var board = boards.find(function(b){ return b.id === el.dataset.id; });
@@ -214,28 +195,39 @@
   var boards = [];
   var zCounter = 10;
 
+  function findBoard(boardId){
+    return boards.find(function(b){ return b.id === boardId; });
+  }
+  function findTask(board, taskId){
+    return board && board.tasks.find(function(t){ return t.id === taskId; });
+  }
+
   // ---------------- undo / redo ----------------
+  // Phase 7: server-side truth (`services.undo_service`), not a client-only
+  // stack — a per-agent, per-user pointer into that user's own audit-log
+  // entries. Survives a reload, and only ever replays *this user's own*
+  // board/task edits — an agent's changes are never in this timeline.
 
-  var MAX_HISTORY = 200;
-  var undoStack = [];
-  var redoStack = [];
-
-  function pushHistory(entry){
-    undoStack.push(entry);
-    if(undoStack.length > MAX_HISTORY) undoStack.shift();
-    redoStack.length = 0;
+  function applyUndoRedoResult(res){
+    if(!res || !res.ok) return;
+    if(res.board){
+      var idx = boards.findIndex(function(b){ return b.id === res.board.id; });
+      if(idx === -1){ boards.push(res.board); } else { boards[idx] = res.board; }
+      zCounter = Math.max(zCounter, res.board.z || 0);
+    } else if(res.boardId){
+      boards = boards.filter(function(b){ return b.id !== res.boardId; });
+    }
+    renderAll();
   }
   function performUndo(){
-    if(!undoStack.length) return;
-    var entry = undoStack.pop();
-    entry.undo();
-    redoStack.push(entry);
+    var agentId = window.Identity && window.Identity.getCurrentAgentId();
+    if(!agentId) return;
+    apiPost("/agents/" + agentId + "/undo").then(applyUndoRedoResult).catch(function(){});
   }
   function performRedo(){
-    if(!redoStack.length) return;
-    var entry = redoStack.pop();
-    entry.redo();
-    undoStack.push(entry);
+    var agentId = window.Identity && window.Identity.getCurrentAgentId();
+    if(!agentId) return;
+    apiPost("/agents/" + agentId + "/redo").then(applyUndoRedoResult).catch(function(){});
   }
   function initHistoryShortcuts(){
     document.addEventListener("keydown", function(e){
@@ -258,135 +250,6 @@
         performRedo();
       }
     });
-  }
-
-  function findBoard(boardId){
-    return boards.find(function(b){ return b.id === boardId; });
-  }
-  function findTask(board, taskId){
-    return board && board.tasks.find(function(t){ return t.id === taskId; });
-  }
-  function cloneTask(task){
-    return {id: task.id, text: task.text, done: !!task.done};
-  }
-  function snapshotBoard(board){
-    return {
-      id: board.id, agentId: board.agentId, myRole: board.myRole, title: board.title, description: board.description,
-      color: board.color, labelId: board.labelId, completed: !!board.completed,
-      x: board.x, y: board.y, w: board.w, h: board.h, z: board.z,
-      tasks: board.tasks.map(cloneTask)
-    };
-  }
-
-  function restoreBoardFromSnapshot(snapshot){
-    var restored = {
-      id: snapshot.id, agentId: snapshot.agentId, myRole: snapshot.myRole,
-      title: snapshot.title, description: snapshot.description,
-      color: snapshot.color, labelId: snapshot.labelId, completed: snapshot.completed,
-      x: snapshot.x, y: snapshot.y, w: snapshot.w, h: snapshot.h,
-      z: snapshot.z, tasks: snapshot.tasks.map(cloneTask)
-    };
-    boards.push(restored);
-    zCounter = Math.max(zCounter, restored.z) + 1;
-    restored.z = zCounter;
-    apiPost("/boards", {
-      id: restored.id, agentId: restored.agentId, title: restored.title, description: restored.description,
-      color: restored.color, labelId: restored.labelId, completed: restored.completed,
-      x: restored.x, y: restored.y, w: restored.w, h: restored.h,
-      z: restored.z, tasks: restored.tasks
-    }).catch(function(){});
-    renderAll();
-  }
-  function removeBoardFromState(boardId){
-    boards = boards.filter(function(b){ return b.id !== boardId; });
-    apiDelete("/boards/" + boardId).catch(function(){});
-    renderAll();
-  }
-  function setBoardField(boardId, field, value){
-    var b = findBoard(boardId);
-    if(!b) return;
-    b[field] = value;
-    var patch = {}; patch[field] = value;
-    apiPatch("/boards/" + boardId, patch).catch(function(){});
-    renderAll();
-  }
-  // Label and color always move together: a board's color is locked to its
-  // label, so undoing/redoing a label change has to restore both at once
-  // rather than leaving color out of sync with what the label dictates.
-  function setBoardLabelAndColor(boardId, labelId, color){
-    var b = findBoard(boardId);
-    if(!b) return;
-    b.labelId = labelId || "";
-    b.color = color;
-    apiPatch("/boards/" + boardId, {labelId: labelId || "", color: color}).catch(function(){});
-    renderAll();
-  }
-  function setBoardPosition(boardId, x, y){
-    var b = findBoard(boardId);
-    if(!b) return;
-    b.x = x; b.y = y;
-    var el = canvas.querySelector('.card[data-id="' + boardId + '"]');
-    if(el){ el.style.left = x + "px"; el.style.top = y + "px"; }
-    apiPatch("/boards/" + boardId, {x: x, y: y}).catch(function(){});
-  }
-  function setBoardSize(boardId, w, h){
-    var b = findBoard(boardId);
-    if(!b) return;
-    b.w = w; b.h = h;
-    var el = canvas.querySelector('.card[data-id="' + boardId + '"]');
-    if(el){ el.style.width = w + "px"; el.style.height = h + "px"; }
-    apiPatch("/boards/" + boardId, {w: w, h: h}).catch(function(){});
-  }
-  function setBoardCompleted(boardId, completed){
-    setBoardField(boardId, "completed", completed);
-  }
-
-  function setTaskDone(boardId, taskId, done){
-    var b = findBoard(boardId);
-    var t = findTask(b, taskId);
-    if(!t) return;
-    t.done = done;
-    apiPatch("/boards/" + boardId + "/tasks/" + taskId, {done: done}).catch(function(){});
-    renderAll();
-  }
-  function setTaskText(boardId, taskId, text){
-    var b = findBoard(boardId);
-    var t = findTask(b, taskId);
-    if(!t) return;
-    t.text = text;
-    apiPatch("/boards/" + boardId + "/tasks/" + taskId, {text: text}).catch(function(){});
-    renderAll();
-  }
-  function removeTask(boardId, taskId){
-    var b = findBoard(boardId);
-    if(!b) return;
-    b.tasks = b.tasks.filter(function(t){ return t.id !== taskId; });
-    apiDelete("/boards/" + boardId + "/tasks/" + taskId).catch(function(){});
-    renderAll();
-  }
-  function restoreTaskAt(boardId, taskSnapshot, index){
-    var b = findBoard(boardId);
-    if(!b) return;
-    apiPost("/boards/" + boardId + "/tasks", {id: taskSnapshot.id, text: taskSnapshot.text, done: taskSnapshot.done}).catch(function(){});
-    var clampedIdx = Math.max(0, Math.min(index, b.tasks.length));
-    b.tasks.splice(clampedIdx, 0, cloneTask(taskSnapshot));
-    renderAll();
-  }
-  function restoreTasks(boardId, taskSnapshots){
-    var b = findBoard(boardId);
-    if(!b) return;
-    taskSnapshots.forEach(function(t){
-      apiPost("/boards/" + boardId + "/tasks", {id: t.id, text: t.text, done: t.done}).catch(function(){});
-      b.tasks.push(cloneTask(t));
-    });
-    renderAll();
-  }
-  function removeTasks(boardId, taskIds){
-    var b = findBoard(boardId);
-    if(!b) return;
-    b.tasks = b.tasks.filter(function(t){ return taskIds.indexOf(t.id) === -1; });
-    taskIds.forEach(function(id){ apiDelete("/boards/" + boardId + "/tasks/" + id).catch(function(){}); });
-    renderAll();
   }
 
   var canvas = document.getElementById("canvas");
@@ -417,6 +280,9 @@
   var taskDetailSubtitle = document.getElementById("task-detail-subtitle");
   var taskDetailClose = document.getElementById("task-detail-close");
   var taskDetailBody = document.getElementById("task-detail-body");
+  var taskDetailActivityBody = document.getElementById("task-detail-activity-body");
+  var taskDetailTabBtnChat = document.getElementById("task-detail-tab-btn-chat");
+  var taskDetailTabBtnActivity = document.getElementById("task-detail-tab-btn-activity");
   var taskDetailRunBtn = document.getElementById("task-detail-run-btn");
   var taskDetailStopBtn = document.getElementById("task-detail-stop-btn");
   var taskDetailForm = document.getElementById("task-detail-form");
@@ -519,10 +385,13 @@
     apiPatch("/boards/" + board.id, {z: zCounter}).catch(function(){});
   }
 
-  function linkify(text){
+  function escapeHtml(text){
     var esc = document.createElement("div");
     esc.textContent = text;
-    var escaped = esc.innerHTML;
+    return esc.innerHTML;
+  }
+
+  function linkifyEscaped(escaped){
     return escaped.replace(/((https?:\/\/|www\.)[^\s<]+)/gi, function(match){
       var trail = "";
       var m = match.match(/[),.;:!?]+$/);
@@ -530,6 +399,129 @@
       var href = /^https?:\/\//i.test(match) ? match : "https://" + match;
       return '<a href="' + href + '" target="_blank" rel="noopener noreferrer">' + match + "</a>" + trail;
     });
+  }
+
+  function linkify(text){
+    return linkifyEscaped(escapeHtml(text));
+  }
+
+  function renderInline(text){
+    var escaped = escapeHtml(text);
+    var codeSpans = [];
+    escaped = escaped.replace(/`([^`]+)`/g, function(_, code){
+      var idx = codeSpans.length;
+      codeSpans.push(code);
+      return "\u0000CODE" + idx + "\u0000";
+    });
+    escaped = escaped.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, function(_, label, href){
+      return '<a href="' + href + '" target="_blank" rel="noopener noreferrer">' + label + "</a>";
+    });
+    escaped = escaped.replace(/(\*\*|__)(?=\S)([\s\S]*?\S)\1/g, "<strong>$2</strong>");
+    escaped = escaped.replace(/(\*|_)(?=\S)([^*_]*?\S)\1/g, "<em>$2</em>");
+    escaped = linkifyEscaped(escaped);
+    escaped = escaped.replace(/\u0000CODE(\d+)\u0000/g, function(_, idx){
+      return "<code>" + codeSpans[+idx] + "</code>";
+    });
+    return escaped;
+  }
+
+  function renderMarkdown(text){
+    if(!text) return "";
+    var lines = String(text).replace(/\r\n/g, "\n").split("\n");
+    var html = "";
+    var listStack = null;
+    var paragraphBuffer = [];
+
+    function flushParagraph(){
+      if(paragraphBuffer.length){
+        html += "<p>" + paragraphBuffer.map(renderInline).join("<br>") + "</p>";
+        paragraphBuffer = [];
+      }
+    }
+    function closeList(){
+      if(listStack){ html += "</" + listStack + ">"; listStack = null; }
+    }
+
+    var i = 0;
+    while(i < lines.length){
+      var line = lines[i];
+
+      var fence = line.match(/^\s*(```|~~~)(.*)$/);
+      if(fence){
+        flushParagraph(); closeList();
+        var fenceMarker = fence[1];
+        var codeLines = [];
+        i++;
+        while(i < lines.length && lines[i].indexOf(fenceMarker) !== 0){
+          codeLines.push(lines[i]);
+          i++;
+        }
+        i++;
+        html += "<pre><code>" + escapeHtml(codeLines.join("\n")) + "</code></pre>";
+        continue;
+      }
+
+      if(/^\s*$/.test(line)){
+        flushParagraph();
+        closeList();
+        i++;
+        continue;
+      }
+
+      var header = line.match(/^(#{1,6})\s+(.*)$/);
+      if(header){
+        flushParagraph(); closeList();
+        var level = header[1].length;
+        html += "<h" + level + ">" + renderInline(header[2]) + "</h" + level + ">";
+        i++;
+        continue;
+      }
+
+      if(/^\s*(-{3,}|\*{3,}|_{3,})\s*$/.test(line)){
+        flushParagraph(); closeList();
+        html += "<hr>";
+        i++;
+        continue;
+      }
+
+      var quote = line.match(/^\s*>\s?(.*)$/);
+      if(quote){
+        flushParagraph(); closeList();
+        var quoteLines = [quote[1]];
+        i++;
+        while(i < lines.length && /^\s*>\s?/.test(lines[i])){
+          quoteLines.push(lines[i].replace(/^\s*>\s?/, ""));
+          i++;
+        }
+        html += "<blockquote>" + renderInline(quoteLines.join(" ")) + "</blockquote>";
+        continue;
+      }
+
+      var ul = line.match(/^\s*[-*+]\s+(.*)$/);
+      if(ul){
+        flushParagraph();
+        if(listStack !== "ul"){ closeList(); html += "<ul>"; listStack = "ul"; }
+        html += "<li>" + renderInline(ul[1]) + "</li>";
+        i++;
+        continue;
+      }
+
+      var ol = line.match(/^\s*\d+[.)]\s+(.*)$/);
+      if(ol){
+        flushParagraph();
+        if(listStack !== "ol"){ closeList(); html += "<ol>"; listStack = "ol"; }
+        html += "<li>" + renderInline(ol[1]) + "</li>";
+        i++;
+        continue;
+      }
+
+      closeList();
+      paragraphBuffer.push(line);
+      i++;
+    }
+    flushParagraph();
+    closeList();
+    return html;
   }
 
   function wireInlineEditable(el, opts){
@@ -597,12 +589,14 @@
 
     el.innerHTML =
       '<div class="card-topbar"></div>' +
+      '<button type="button" class="glow-banner" hidden></button>' +
       '<div class="card-header">' +
         '<div class="card-title" spellcheck="false"></div>' +
         '<div class="card-header-actions">' +
           '<button class="icon-btn edit-title-btn" title="Rename board" aria-label="Rename board"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M13.4 3.6a1.4 1.4 0 0 1 2 0l1 1a1.4 1.4 0 0 1 0 2L7 15.2l-3.2.8.8-3.2 8.8-9.2Z"/><path d="M12 5l3 3"/></svg></button>' +
           '<button class="icon-btn color-btn" title="Change color" aria-label="Change color"><span class="color-dot"></span></button>' +
           '<button class="icon-btn share-btn" title="Share board" aria-label="Share board"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="15" cy="5" r="2.2"/><circle cx="5" cy="10" r="2.2"/><circle cx="15" cy="15" r="2.2"/><path d="M7 8.8l6-2.6M7 11.2l6 2.6"/></svg></button>' +
+          '<button class="icon-btn activity-btn" title="Board activity" aria-label="Board activity"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10h3l2 5 4-10 2 5h3"/></svg></button>' +
           '<button class="icon-btn start-btn" title="Start" aria-label="Start board"><svg viewBox="0 0 20 20" fill="currentColor" stroke="none"><path d="M6.5 4.3v11.4a1 1 0 0 0 1.53.85l8.9-5.7a1 1 0 0 0 0-1.7l-8.9-5.7a1 1 0 0 0-1.53.85Z"/></svg></button>' +
           '<button class="icon-btn stop-btn" title="Stop" aria-label="Stop board" hidden><svg viewBox="0 0 20 20" fill="currentColor" stroke="none"><rect x="5.5" y="5.5" width="9" height="9" rx="1.5"/></svg></button>' +
           '<button class="icon-btn chat-btn" title="Chat about this board" aria-label="Chat about this board"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9.4a5.4 5.4 0 0 1 5.4-5.4h3.2a5.4 5.4 0 0 1 0 10.8H8l-3.6 2.6a.6.6 0 0 1-.95-.49L3.4 14a5.4 5.4 0 0 1-.4-2V9.4Z"/></svg></button>' +
@@ -613,12 +607,6 @@
       '<div class="card-subtitle" spellcheck="false" data-placeholder="Add a one-line description&hellip;"></div>' +
       '<div class="progress-row">' +
         '<div class="progress-track"><div class="progress-fill"></div></div>' +
-        '<span class="anchor completed-anchor">' +
-          '<button class="completed-btn" type="button" hidden aria-label="View completed tasks">' +
-            '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="10" r="7.3"/><path d="M6.7 10.2l2 2.1 4.4-4.6"/></svg>' +
-            '<span class="completed-count">0</span>' +
-          "</button>" +
-        "</span>" +
       "</div>" +
       '<div class="card-body">' +
         '<ul class="task-list"></ul>' +
@@ -634,16 +622,9 @@
       readOnly: readOnly,
       getValue: function(){ return board.title; },
       setValue: function(val){
-        var before = board.title;
         var after = val || "Untitled board";
         board.title = after;
         apiPatch("/boards/" + board.id, {title: after}).catch(function(){});
-        if(before !== after){
-          pushHistory({
-            undo: function(){ setBoardField(board.id, "title", before); },
-            redo: function(){ setBoardField(board.id, "title", after); }
-          });
-        }
       }
     });
     el.querySelector(".edit-title-btn").disabled = readOnly;
@@ -657,38 +638,59 @@
       readOnly: readOnly,
       getValue: function(){ return board.description || ""; },
       setValue: function(val){
-        var before = board.description || "";
         var after = val;
         board.description = after;
         apiPatch("/boards/" + board.id, {description: after}).catch(function(){});
-        if(before !== after){
-          pushHistory({
-            undo: function(){ setBoardField(board.id, "description", before); },
-            redo: function(){ setBoardField(board.id, "description", after); }
-          });
-        }
       }
     });
 
     var taskList = el.querySelector(".task-list");
     var taskCountEl = el.querySelector(".task-count");
     var progressFill = el.querySelector(".progress-fill");
-    var completedAnchor = el.querySelector(".completed-anchor");
-    var completedBtn = el.querySelector(".completed-btn");
-    var completedCountEl = el.querySelector(".completed-count");
     var startBtn = el.querySelector(".start-btn");
     var stopBtn = el.querySelector(".stop-btn");
+    var glowBanner = el.querySelector(".glow-banner");
+
+    // What each glow state means, in words — the ring color alone doesn't
+    // say why a board is glowing, so the banner spells it out. `cls` is the
+    // hyphenated suffix the CSS rules use (`.glow-banner-needs-reply`), kept
+    // separate from the backend's own underscored `needs_reply` spelling.
+    var GLOW_MESSAGES = {
+      processing:      {cls: "processing",      text: "Working on it&hellip;"},
+      done:            {cls: "done",            text: "All tasks done"},
+      needs_reply:     {cls: "needs-reply",     text: "Waiting on your reply"},
+      needs_approval:  {cls: "needs-approval",  text: "Needs your approval"}
+    };
+
+    glowBanner.addEventListener("pointerdown", function(e){ e.stopPropagation(); });
+    glowBanner.addEventListener("click", function(e){
+      e.stopPropagation();
+      openChatModal(board.id);
+    });
 
     function updateRunUI(){
       var status = board.status || "idle";
       var active = status === "queued" || status === "running";
       var budgetStopped = status === "stopped" && board.statusReason === "budget_exceeded";
-      el.classList.toggle("processing", active);
-      el.classList.toggle("run-done", status === "done");
+      // The four-state glow taxonomy (Phase 7) is the single source of
+      // truth for the board's ring color — `board.glow` is derived and
+      // persisted server-side (see `execution.glow`), never re-derived here.
+      var glowState = board.glow || "none";
+      el.classList.toggle("glow-processing", glowState === "processing");
+      el.classList.toggle("glow-done", glowState === "done");
+      el.classList.toggle("glow-needs-reply", glowState === "needs_reply");
+      el.classList.toggle("glow-needs-approval", glowState === "needs_approval");
       el.classList.toggle("run-stopped-budget", budgetStopped);
       el.title = budgetStopped ? "Stopped: budget exceeded" : "";
       startBtn.hidden = readOnly || active;
       stopBtn.hidden = readOnly || !active;
+
+      var message = GLOW_MESSAGES[glowState];
+      glowBanner.hidden = !message;
+      if(message){
+        glowBanner.className = "glow-banner glow-banner-" + message.cls;
+        glowBanner.innerHTML = message.text;
+      }
     }
 
     startBtn.addEventListener("pointerdown", function(e){ e.stopPropagation(); });
@@ -724,11 +726,18 @@
           if("statusReason" in data) t.statusReason = data.statusReason;
           renderTasks();
           updateMeta();
-          renderCompletedPop();
           refreshTaskDetailIfOpen(board.id, data.taskId);
         } else if(data.boardId){
-          board.status = data.status;
-          board.statusReason = data.statusReason;
+          if("status" in data){
+            board.status = data.status;
+            board.statusReason = data.statusReason;
+          }
+          if("glow" in data){
+            board.glow = data.glow;
+          }
+          if(data.llmCall && window.AdminConsole){
+            window.AdminConsole.onLiveLlmCall(data.boardId, data.llmCall);
+          }
           updateRunUI();
         }
       };
@@ -737,17 +746,34 @@
 
     function renderTasks(){
       taskList.innerHTML = "";
-      board.tasks.filter(function(t){ return !t.done; }).forEach(function(task){
+      var openTasks = board.tasks.filter(function(t){ return !t.done; });
+      var doneTasks = board.tasks.filter(function(t){ return t.done; });
+
+      openTasks.forEach(function(task){
         var li = document.createElement("li");
+        // Task-level glow taxonomy (Phase 7): `needs-approval` and
+        // `needs-reply` mirror the board-level precedence
+        // (needs_approval > needs_reply > processing > done > none) at the
+        // individual task a human would actually act on. `awaiting_reply`,
+        // `awaiting_clarification` and `manual` all share `needs-reply` —
+        // each is the agent waiting on a human's text reply in chat, just
+        // for a different reason — while keeping their own specific classes
+        // below for the existing distinct badge copy.
+        var needsApproval = task.status === "awaiting_approval";
+        var needsReply = task.status === "awaiting_reply" || task.status === "awaiting_clarification" || task.status === "manual";
         li.className = "task" +
           (task.status === "running" ? " running" : "") +
           (task.status === "queued" ? " queued" : "") +
           (task.status === "awaiting_clarification" ? " needs-input" : "") +
-          (task.status === "manual" ? " manual-pending" : "");
+          (task.status === "manual" ? " manual-pending" : "") +
+          (needsApproval ? " needs-approval" : "") +
+          (needsReply ? " needs-reply" : "");
         li.setAttribute("data-done", "false");
         var badge = task.status === "queued" ? '<span class="task-queued-badge">waiting…</span>'
           : task.status === "awaiting_clarification" ? '<span class="task-queued-badge">question&hellip;</span>'
           : task.status === "manual" ? '<span class="task-queued-badge">manual pending&hellip;</span>'
+          : task.status === "awaiting_approval" ? '<span class="task-queued-badge">needs approval&hellip;</span>'
+          : task.status === "awaiting_reply" ? '<span class="task-queued-badge">question&hellip;</span>'
           : (task.status === "idle" && task.statusReason) ? '<span class="task-queued-badge">' + task.statusReason + '</span>'
           : "";
         var runnable = !readOnly && TASK_RUNNABLE_STATUSES[task.status];
@@ -803,12 +829,7 @@
           task.done = true;
           renderTasks();
           updateMeta();
-          renderCompletedPop();
           apiPatch("/boards/" + board.id + "/tasks/" + task.id, {done: true}).catch(function(){});
-          pushHistory({
-            undo: function(){ setTaskDone(board.id, task.id, false); },
-            redo: function(){ setTaskDone(board.id, task.id, true); }
-          });
         });
 
         var textEl = li.querySelector(".task-text");
@@ -817,28 +838,15 @@
           readOnly: readOnly,
           getValue: function(){ return task.text; },
           setValue: function(val){
-            var before = task.text;
             var after = val;
             task.text = after;
             apiPatch("/boards/" + board.id + "/tasks/" + task.id, {text: after}).catch(function(){});
-            if(before !== after){
-              pushHistory({
-                undo: function(){ setTaskText(board.id, task.id, before); },
-                redo: function(){ setTaskText(board.id, task.id, after); }
-              });
-            }
           },
           onEmpty: function(){
-            var idx = board.tasks.indexOf(task);
-            var snapshot = cloneTask(task);
             board.tasks = board.tasks.filter(function(t){ return t.id !== task.id; });
             renderTasks();
             updateMeta();
             apiDelete("/boards/" + board.id + "/tasks/" + task.id).catch(function(){});
-            pushHistory({
-              undo: function(){ restoreTaskAt(board.id, snapshot, idx); },
-              redo: function(){ removeTask(board.id, snapshot.id); }
-            });
           }
         });
 
@@ -853,20 +861,34 @@
         li.querySelector(".task-del").addEventListener("pointerdown", function(e){ e.stopPropagation(); });
         li.querySelector(".task-del").addEventListener("click", function(){
           if(readOnly) return;
-          var idx = board.tasks.indexOf(task);
-          var snapshot = cloneTask(task);
           board.tasks = board.tasks.filter(function(t){ return t.id !== task.id; });
           renderTasks();
           updateMeta();
           apiDelete("/boards/" + board.id + "/tasks/" + task.id).catch(function(){});
-          pushHistory({
-            undo: function(){ restoreTaskAt(board.id, snapshot, idx); },
-            redo: function(){ removeTask(board.id, snapshot.id); }
-          });
         });
 
         taskList.appendChild(li);
       });
+
+      if(doneTasks.length){
+        var sep = document.createElement("li");
+        sep.className = "task-separator";
+        sep.innerHTML =
+          '<span class="task-separator-label">Completed (' + doneTasks.length + ")</span>" +
+          '<button class="clear-completed-btn" type="button"' + (readOnly ? " disabled" : "") + ">Clear all</button>";
+        sep.querySelector(".clear-completed-btn").addEventListener("pointerdown", function(e){ e.stopPropagation(); });
+        sep.querySelector(".clear-completed-btn").addEventListener("click", function(e){
+          e.stopPropagation();
+          if(readOnly) return;
+          board.tasks = board.tasks.filter(function(t){ return !t.done; });
+          renderTasks();
+          updateMeta();
+          apiPost("/boards/" + board.id + "/tasks/clear-completed").catch(function(){});
+        });
+        taskList.appendChild(sep);
+
+        doneTasks.forEach(function(task){ taskList.appendChild(buildCompletedItem(task)); });
+      }
     }
 
     function updateMeta(){
@@ -875,8 +897,6 @@
       var open = total - done;
       taskCountEl.textContent = total ? (open + (open === 1 ? " task left" : " tasks left")) : "No tasks yet";
       progressFill.style.width = total ? Math.round((done / total) * 100) + "%" : "0%";
-      completedCountEl.textContent = done;
-      completedBtn.hidden = done === 0;
     }
 
     function buildCompletedItem(task){
@@ -899,71 +919,19 @@
         task.done = false;
         renderTasks();
         updateMeta();
-        renderCompletedPop();
         apiPatch("/boards/" + board.id + "/tasks/" + task.id, {done: false}).catch(function(){});
-        pushHistory({
-          undo: function(){ setTaskDone(board.id, task.id, true); },
-          redo: function(){ setTaskDone(board.id, task.id, false); }
-        });
       });
       li.querySelector(".task-del").disabled = readOnly;
       li.querySelector(".task-del").addEventListener("pointerdown", function(e){ e.stopPropagation(); });
       li.querySelector(".task-del").addEventListener("click", function(){
         if(readOnly) return;
-        var idx = board.tasks.indexOf(task);
-        var snapshot = cloneTask(task);
         board.tasks = board.tasks.filter(function(t){ return t.id !== task.id; });
+        renderTasks();
         updateMeta();
-        renderCompletedPop();
         apiDelete("/boards/" + board.id + "/tasks/" + task.id).catch(function(){});
-        pushHistory({
-          undo: function(){ restoreTaskAt(board.id, snapshot, idx); },
-          redo: function(){ removeTask(board.id, snapshot.id); }
-        });
       });
       return li;
     }
-
-    function renderCompletedPop(){
-      var pop = completedAnchor.querySelector(".completed-pop");
-      if(!pop) return;
-      var done = board.tasks.filter(function(t){ return t.done; });
-      if(!done.length){ pop.remove(); return; }
-      var list = pop.querySelector(".task-list");
-      list.innerHTML = "";
-      done.forEach(function(task){ list.appendChild(buildCompletedItem(task)); });
-    }
-
-    completedBtn.addEventListener("pointerdown", function(e){ e.stopPropagation(); });
-    completedBtn.addEventListener("click", function(e){
-      e.stopPropagation();
-      var existing = completedAnchor.querySelector(".completed-pop");
-      if(existing){ existing.remove(); return; }
-      closeAllPopovers();
-      var pop = document.createElement("div");
-      pop.className = "completed-pop popover";
-      pop.innerHTML =
-        '<div class="completed-pop-header"><span>Completed</span><button class="clear-completed-btn" type="button"' + (readOnly ? " disabled" : "") + '>Clear all</button></div>' +
-        '<ul class="task-list"></ul>';
-      pop.querySelector(".clear-completed-btn").addEventListener("pointerdown", function(ev){ ev.stopPropagation(); });
-      pop.querySelector(".clear-completed-btn").addEventListener("click", function(ev){
-        ev.stopPropagation();
-        if(readOnly) return;
-        var removed = board.tasks.filter(function(t){ return t.done; }).map(cloneTask);
-        board.tasks = board.tasks.filter(function(t){ return !t.done; });
-        updateMeta();
-        apiPost("/boards/" + board.id + "/tasks/clear-completed").catch(function(){});
-        pop.remove();
-        if(removed.length){
-          pushHistory({
-            undo: function(){ restoreTasks(board.id, removed); },
-            redo: function(){ removeTasks(board.id, removed.map(function(t){ return t.id; })); }
-          });
-        }
-      });
-      completedAnchor.appendChild(pop);
-      renderCompletedPop();
-    });
 
     renderTasks();
     updateMeta();
@@ -983,10 +951,6 @@
         board.tasks.push(task);
         renderTasks();
         updateMeta();
-        pushHistory({
-          undo: function(){ removeTask(board.id, task.id); },
-          redo: function(){ restoreTaskAt(board.id, task, board.tasks.length); }
-        });
       }).catch(function(){});
     });
 
@@ -1017,18 +981,11 @@
         b.disabled = colorLocked;
         b.addEventListener("click", function(ev){
           ev.stopPropagation();
-          var before = board.color;
           var after = h.name;
           board.color = after;
           el.style.setProperty("--card-hue", hueValue(after));
           pop.remove();
           apiPatch("/boards/" + board.id, {color: after}).catch(function(){});
-          if(before !== after){
-            pushHistory({
-              undo: function(){ setBoardField(board.id, "color", before); },
-              redo: function(){ setBoardField(board.id, "color", after); }
-            });
-          }
         });
         swatchGrid.appendChild(b);
       });
@@ -1052,6 +1009,14 @@
       if(window.Sharing) window.Sharing.open(board);
     });
 
+    var activityBtn = el.querySelector(".activity-btn");
+    activityBtn.addEventListener("pointerdown", function(e){ e.stopPropagation(); });
+    activityBtn.addEventListener("click", function(e){
+      e.stopPropagation();
+      closeAllPopovers();
+      if(window.AdminConsole) window.AdminConsole.openBoardActivity(board.id, board.title);
+    });
+
     var chatBtn = el.querySelector(".chat-btn");
     chatBtn.addEventListener("pointerdown", function(e){ e.stopPropagation(); });
     chatBtn.addEventListener("click", function(e){
@@ -1068,10 +1033,6 @@
       board.completed = true;
       renderAll();
       apiPatch("/boards/" + board.id, {completed: true}).catch(function(){});
-      pushHistory({
-        undo: function(){ setBoardCompleted(board.id, false); },
-        redo: function(){ setBoardCompleted(board.id, true); }
-      });
     });
 
     var deleteBtn = el.querySelector(".delete-btn");
@@ -1093,16 +1054,11 @@
       });
       pop.querySelector(".confirm-yes").addEventListener("click", function(ev){
         ev.stopPropagation();
-        var snapshot = snapshotBoard(board);
         boards = boards.filter(function(b){ return b.id !== board.id; });
         if(eventSource) eventSource.close();
         el.remove();
         updateCount();
         apiDelete("/boards/" + board.id).catch(function(){});
-        pushHistory({
-          undo: function(){ restoreBoardFromSnapshot(snapshot); },
-          redo: function(){ removeBoardFromState(snapshot.id); }
-        });
       });
       el.querySelector(".card-header-actions").appendChild(pop);
     });
@@ -1135,13 +1091,6 @@
         header.removeEventListener("pointerup", onUp);
         el.classList.remove("dragging");
         apiPatch("/boards/" + board.id, {x: board.x, y: board.y}).catch(function(){});
-        if(board.x !== origX || board.y !== origY){
-          var boardId = board.id, beforeX = origX, beforeY = origY, afterX = board.x, afterY = board.y;
-          pushHistory({
-            undo: function(){ setBoardPosition(boardId, beforeX, beforeY); },
-            redo: function(){ setBoardPosition(boardId, afterX, afterY); }
-          });
-        }
       }
       header.addEventListener("pointermove", onMove);
       header.addEventListener("pointerup", onUp);
@@ -1174,13 +1123,6 @@
         handle.removeEventListener("pointerup", onUp);
         el.classList.remove("resizing");
         apiPatch("/boards/" + board.id, {w: board.w, h: board.h}).catch(function(){});
-        if(board.w !== origW || board.h !== origH){
-          var boardId = board.id, beforeW = origW, beforeH = origH, afterW = board.w, afterH = board.h;
-          pushHistory({
-            undo: function(){ setBoardSize(boardId, beforeW, beforeH); },
-            redo: function(){ setBoardSize(boardId, afterW, afterH); }
-          });
-        }
       }
       handle.addEventListener("pointermove", onMove);
       handle.addEventListener("pointerup", onUp);
@@ -1227,7 +1169,7 @@
     if(m.text){
       var bubble = document.createElement("div");
       bubble.className = "chat-bubble";
-      bubble.innerHTML = linkify(m.text);
+      bubble.innerHTML = renderMarkdown(m.text);
       col.appendChild(bubble);
     }
 
@@ -1310,7 +1252,7 @@
     if(m.text){
       var bubble = document.createElement("div");
       bubble.className = "chat-bubble";
-      bubble.innerHTML = linkify(m.text);
+      bubble.innerHTML = renderMarkdown(m.text);
       col.appendChild(bubble);
     }
 
@@ -1345,7 +1287,7 @@
     wrap.className = "chat-msg chat-msg-" + m.role;
     var bubble = document.createElement("div");
     bubble.className = "chat-bubble";
-    bubble.innerHTML = m.text ? linkify(m.text) : "";
+    bubble.innerHTML = m.text ? renderMarkdown(m.text) : "";
     wrap.appendChild(bubble);
     return wrap;
   }
@@ -1452,12 +1394,22 @@
     renderChatHistoryPop();
   }
 
+  var CHAT_TITLE_MAX_CHARS = 25;
+
+  function setModalTitle(el, text){
+    var full = text || "";
+    el.textContent = full.length > CHAT_TITLE_MAX_CHARS
+      ? full.slice(0, CHAT_TITLE_MAX_CHARS - 1).trimEnd() + "…"
+      : full;
+    el.title = full;
+  }
+
   async function openChatModal(boardId){
     var board = boards.find(function(b){ return b.id === boardId; });
     if(!board) return;
     if(chatBoardId !== boardId) abortActiveChatStream();
     chatBoardId = boardId;
-    chatModalTitle.textContent = board.title || "Untitled board";
+    setModalTitle(chatModalTitle, board.title || "Untitled board");
     chatModalDot.style.background = hueValue(board.color);
     chatModal.hidden = false;
     closeAllPopovers();
@@ -1592,7 +1544,7 @@
     col.className = "action-msg-col";
     var bubble = document.createElement("div");
     bubble.className = "chat-bubble";
-    bubble.innerHTML = linkify(m.text || payload.question || "");
+    bubble.innerHTML = renderMarkdown(m.text || payload.question || "");
     col.appendChild(bubble);
     var card = document.createElement("div");
     card.className = "action-card";
@@ -1618,7 +1570,7 @@
     col.className = "action-msg-col";
     var bubble = document.createElement("div");
     bubble.className = "chat-bubble";
-    bubble.innerHTML = linkify(m.text || payload.note || "");
+    bubble.innerHTML = renderMarkdown(m.text || payload.note || "");
     col.appendChild(bubble);
     var card = document.createElement("div");
     card.className = "action-card";
@@ -1656,7 +1608,7 @@
       if(m.text){
         var bubble = document.createElement("div");
         bubble.className = "chat-bubble";
-        bubble.innerHTML = linkify(m.text);
+        bubble.innerHTML = renderMarkdown(m.text);
         col.appendChild(bubble);
       }
       var card = document.createElement("div");
@@ -1685,7 +1637,7 @@
     wrap.className = "chat-msg chat-msg-" + m.role;
     var bubble = document.createElement("div");
     bubble.className = "chat-bubble";
-    bubble.innerHTML = m.text ? linkify(m.text) : "";
+    bubble.innerHTML = m.text ? renderMarkdown(m.text) : "";
     wrap.appendChild(bubble);
     return wrap;
   }
@@ -1696,7 +1648,7 @@
     taskDetailBoardId = boardId;
     taskDetailTaskId = task.id;
     taskDetailChatId = null;
-    taskDetailTitle.textContent = task.text || "Task";
+    setModalTitle(taskDetailTitle, task.text || "Task");
     taskDetailSubtitle.textContent = task.status ? ("Status: " + task.status) : "";
     var runnable = TASK_RUNNABLE_STATUSES[task.status] && board.myRole !== "viewer";
     var stoppable = TASK_STOPPABLE_STATUSES[task.status] && board.myRole !== "viewer";
@@ -1706,7 +1658,9 @@
     taskDetailStopBtn.disabled = !stoppable;
     taskDetailModal.hidden = false;
     closeAllPopovers();
+    activateTaskDetailTab("chat");
     taskDetailBody.innerHTML = '<div class="chat-empty">Loading&hellip;</div>';
+    taskDetailActivityBody.innerHTML = "";
     taskDetailTextarea.value = "";
     await loadTaskDetail(boardId, task.id);
     if(taskDetailBoardId === boardId && taskDetailTaskId === task.id) taskDetailTextarea.focus();
@@ -1757,7 +1711,12 @@
       row.appendChild(roleLabel);
       var textEl = document.createElement("span");
       textEl.className = "transcript-text";
-      textEl.textContent = entry.text || "";
+      var isRawText = entry.role === "tool_call" || entry.role === "tool_result";
+      if(isRawText){
+        textEl.textContent = entry.text || "";
+      } else {
+        textEl.innerHTML = entry.text ? renderMarkdown(entry.text) : "";
+      }
       row.appendChild(textEl);
       list.appendChild(row);
     });
@@ -1837,7 +1796,7 @@
   function renderTaskDetailActivity(board, chat, activity){
     var task = findTask(board, taskDetailTaskId);
     if(task){
-      taskDetailTitle.textContent = task.text || "Task";
+      setModalTitle(taskDetailTitle, task.text || "Task");
       taskDetailSubtitle.textContent = task.status ? ("Status: " + task.status) : "";
     }
     var runnable = !!task && TASK_RUNNABLE_STATUSES[task.status] && board.myRole !== "viewer";
@@ -1848,7 +1807,6 @@
     taskDetailStopBtn.disabled = !stoppable;
     taskDetailBody.innerHTML = "";
     var messages = chat.messages || [];
-    taskDetailBody.appendChild(buildCountsSummary(activity.counts || {}));
     if(!messages.length){
       var empty = document.createElement("div");
       empty.className = "chat-empty";
@@ -1857,9 +1815,12 @@
     } else {
       messages.forEach(function(m){ taskDetailBody.appendChild(buildOwnTaskMessageEl(board, chat, m)); });
     }
-    taskDetailBody.appendChild(buildSubAgentSection(activity.subAgentRuns || []));
-    taskDetailBody.appendChild(buildPeerAgentSection(activity.peerDelegations || []));
     taskDetailBody.scrollTop = taskDetailBody.scrollHeight;
+
+    taskDetailActivityBody.innerHTML = "";
+    taskDetailActivityBody.appendChild(buildCountsSummary(activity.counts || {}));
+    taskDetailActivityBody.appendChild(buildSubAgentSection(activity.subAgentRuns || []));
+    taskDetailActivityBody.appendChild(buildPeerAgentSection(activity.peerDelegations || []));
   }
 
   function closeTaskDetailModal(){
@@ -1942,7 +1903,21 @@
     }
   }
 
+  var TASK_DETAIL_TAB_PANELS = {chat: taskDetailBody, activity: taskDetailActivityBody};
+  var TASK_DETAIL_TAB_BUTTONS = {chat: taskDetailTabBtnChat, activity: taskDetailTabBtnActivity};
+
+  function activateTaskDetailTab(name){
+    Object.keys(TASK_DETAIL_TAB_PANELS).forEach(function(key){
+      TASK_DETAIL_TAB_PANELS[key].hidden = key !== name;
+      TASK_DETAIL_TAB_BUTTONS[key].classList.toggle("active", key === name);
+      TASK_DETAIL_TAB_BUTTONS[key].setAttribute("aria-selected", key === name ? "true" : "false");
+    });
+    taskDetailForm.hidden = name !== "chat";
+  }
+
   function wireTaskDetailModal(){
+    TASK_DETAIL_TAB_BUTTONS.chat.addEventListener("click", function(){ activateTaskDetailTab("chat"); });
+    TASK_DETAIL_TAB_BUTTONS.activity.addEventListener("click", function(){ activateTaskDetailTab("activity"); });
     taskDetailClose.addEventListener("click", closeTaskDetailModal);
     taskDetailModal.addEventListener("mousedown", function(e){
       if(e.target === taskDetailModal) closeTaskDetailModal();
@@ -2010,10 +1985,6 @@
       boards.push(board);
       zCounter = Math.max(zCounter, board.z);
       renderAll();
-      pushHistory({
-        undo: function(){ removeBoardFromState(board.id); },
-        redo: function(){ restoreBoardFromSnapshot(snapshotBoard(board)); }
-      });
     }catch(e){}
   }
 
@@ -2077,10 +2048,6 @@
       renderAll();
       apiPatch("/boards/" + board.id, {completed: false}).catch(function(){});
       renderArchivePop();
-      pushHistory({
-        undo: function(){ setBoardCompleted(board.id, true); },
-        redo: function(){ setBoardCompleted(board.id, false); }
-      });
     });
 
     var deleteBtn = document.createElement("button");
@@ -2309,7 +2276,6 @@
 
   async function init(){
     initTheme();
-    initDescToggle();
     initZoom();
     initHistoryShortcuts();
     wireChatModal();

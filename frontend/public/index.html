@@ -22,7 +22,7 @@
 <div class="toolbar" id="app-toolbar" hidden>
   <div class="brand">
     <h1>Manifestation Board</h1>
-    <p>Put your thoughts and watch them menifest</p>
+    <p>Put your thoughts and watch them manifest</p>
   </div>
   <span class="anchor" id="agent-switcher-anchor">
     <button class="btn agent-switcher-btn" id="agent-switcher-btn" type="button" title="Switch Agent">
@@ -37,10 +37,6 @@
       <button class="zoom-level" id="zoom-level-btn" type="button" title="Reset zoom to 100% (Ctrl/Cmd 0)" aria-label="Reset zoom to 100%">100%</button>
       <button class="zoom-step" id="zoom-in-btn" type="button" title="Zoom in (Ctrl/Cmd +)" aria-label="Zoom in">+</button>
     </span>
-    <button class="theme-toggle" id="desc-toggle" title="Show/hide descriptions" aria-label="Toggle board descriptions">
-      <svg class="icon-eye" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
-      <svg class="icon-eye-off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3l18 18M10.6 10.6a3 3 0 0 0 4.24 4.24M9.9 5.1A10.4 10.4 0 0 1 12 5c6.4 0 10 7 10 7a17.6 17.6 0 0 1-3.2 4.2M6.2 6.2A17.7 17.7 0 0 0 2 12s3.6 7 10 7c1.3 0 2.5-.2 3.6-.6"/></svg>
-    </button>
     <button class="theme-toggle" id="theme-toggle" title="Switch theme" aria-label="Switch between light and dark theme">
       <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4.5"/><path d="M12 2.5v2.5M12 19v2.5M4.6 4.6l1.8 1.8M17.6 17.6l1.8 1.8M2.5 12H5M19 12h2.5M4.6 19.4l1.8-1.8M17.6 6.4l1.8-1.8"/></svg>
       <svg class="icon-moon" viewBox="0 0 24 24" fill="currentColor"><path d="M20 14.5A8.5 8.5 0 0 1 9.5 4 8.5 8.5 0 1 0 20 14.5Z"/></svg>
@@ -153,15 +149,20 @@
     <div class="chat-modal-header">
       <div class="chat-modal-titles">
         <div>
-          <h2 id="settings-modal-title">Agent settings</h2>
-          <p>Tool access and budget caps for this Agent</p>
+          <h2 id="settings-modal-title">Agent Admin Console</h2>
+          <p>Config, Activity, and Traces for this Agent</p>
         </div>
       </div>
       <div class="chat-modal-header-actions">
-        <button class="icon-btn chat-modal-close" id="settings-modal-close" type="button" aria-label="Close settings">&times;</button>
+        <button class="icon-btn chat-modal-close" id="settings-modal-close" type="button" aria-label="Close admin console">&times;</button>
       </div>
     </div>
-    <div class="chat-modal-body settings-modal-body">
+    <div class="admin-console-tabs" role="tablist">
+      <button type="button" class="admin-console-tab active" id="admin-tab-btn-config" role="tab" aria-selected="true">Config</button>
+      <button type="button" class="admin-console-tab" id="admin-tab-btn-activity" role="tab" aria-selected="false">Activity</button>
+      <button type="button" class="admin-console-tab" id="admin-tab-btn-traces" role="tab" aria-selected="false">Traces</button>
+    </div>
+    <div class="chat-modal-body settings-modal-body" id="admin-tab-config">
       <form id="agent-identity-form">
         <section class="settings-section">
           <h3>Agent</h3>
@@ -218,6 +219,11 @@
           <p class="settings-hint">Max tool-call rounds a single task run may take before it's cut off.</p>
           <input type="number" id="settings-max-tool-rounds" min="1" step="1" aria-label="Max tool-call rounds">
         </section>
+        <section class="settings-section">
+          <h3>Trace retention</h3>
+          <p class="settings-hint">How long full LLM call detail (system prompt, request, response, tool calls) is kept in the Traces tab before it's purged. This is debug data, not the audit log &mdash; that's kept forever.</p>
+          <input type="number" id="settings-llm-retention-days" min="1" step="1" aria-label="Trace retention in days">
+        </section>
         <div class="settings-form-actions">
           <button type="submit" class="btn btn-primary" id="settings-save-btn">Save</button>
           <span class="settings-saved-msg" id="settings-saved-msg" hidden>Saved</span>
@@ -233,6 +239,50 @@
         </form>
       </section>
     </div>
+    <div class="chat-modal-body settings-modal-body" id="admin-tab-activity" hidden>
+      <p class="settings-hint">Every create/update/delete across this Agent's boards, tasks, and chat messages — human and agent actions alike, with before/after values.</p>
+      <div class="activity-filters">
+        <select id="activity-board-filter" aria-label="Filter by board"><option value="">All boards</option></select>
+        <select id="activity-actor-filter" aria-label="Filter by actor">
+          <option value="">All actors</option>
+          <option value="human">Human</option>
+          <option value="agent">Agent</option>
+        </select>
+        <button type="button" class="btn" id="activity-refresh-btn">Refresh</button>
+      </div>
+      <div class="activity-list" id="activity-list"></div>
+    </div>
+    <div class="chat-modal-body settings-modal-body" id="admin-tab-traces" hidden>
+      <p class="settings-hint">Every model call this Agent has made — full system prompt, request, tool call, and response, captured by default.</p>
+      <div class="activity-filters">
+        <select id="traces-board-filter" aria-label="Filter by board"><option value="">All boards</option></select>
+        <span class="traces-live-indicator" id="traces-live-indicator" hidden><span class="live-dot"></span>Live</span>
+        <button type="button" class="btn" id="traces-refresh-btn">Refresh</button>
+      </div>
+      <div class="traces-layout">
+        <div class="traces-list" id="traces-list"></div>
+        <div class="traces-detail" id="traces-detail">
+          <p class="settings-hint">Select a call to see its full prompt, response, and tool call.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="chat-modal" id="board-activity-modal" hidden>
+  <div class="chat-modal-dialog">
+    <div class="chat-modal-header">
+      <div class="chat-modal-titles">
+        <div>
+          <h2 id="board-activity-title">Board activity</h2>
+          <p>This board's own history &mdash; no cross-board visibility</p>
+        </div>
+      </div>
+      <div class="chat-modal-header-actions">
+        <button class="icon-btn chat-modal-close" id="board-activity-close" type="button" aria-label="Close board activity">&times;</button>
+      </div>
+    </div>
+    <div class="chat-modal-body activity-list" id="board-activity-list"></div>
   </div>
 </div>
 
@@ -251,7 +301,12 @@
         <button class="icon-btn chat-modal-close" id="task-detail-close" type="button" aria-label="Close task detail">&times;</button>
       </div>
     </div>
+    <div class="admin-console-tabs" role="tablist">
+      <button type="button" class="admin-console-tab active" id="task-detail-tab-btn-chat" role="tab" aria-selected="true">Chat</button>
+      <button type="button" class="admin-console-tab" id="task-detail-tab-btn-activity" role="tab" aria-selected="false">Activities</button>
+    </div>
     <div class="chat-modal-body" id="task-detail-body"></div>
+    <div class="chat-modal-body" id="task-detail-activity-body" hidden></div>
     <form class="chat-modal-input" id="task-detail-form">
       <textarea id="task-detail-textarea" rows="1" placeholder="Message about this task&hellip;" aria-label="Task chat message"></textarea>
       <button type="submit" class="btn btn-primary" id="task-detail-send">Send</button>
@@ -274,6 +329,7 @@
 <script src="identity.js"></script>
 <script src="sharing.js"></script>
 <script src="settings.js"></script>
+<script src="admin-console.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

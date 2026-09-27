@@ -12,85 +12,26 @@ can and the rest depends on someone outside this system entirely, so the
 task waits on a human to say what that person did, rather than on any
 in-system reply.
 """
+import time
 from typing import Any, List, Tuple
 
 from .. import config
 from ..chat_service import get_client
 from ..database import agents_collection, boards_collection
-from ..models import new_id
 from ..models_settings import default_model_config
-from ..services import budget_service, settings_service
+from ..services import settings_service
 from ..services.chats_service import text_message
-from . import subagent, tools
+from . import subagent, tools, tracing
 from .conversation import assistant_turn, build_task_system_prompt, split_response, to_anthropic_messages, tool_result_turn
 from .enforcement import check_budget
+from .pending_messages import (
+    action_request_message as _action_request_message,
+    clarification_request_message as _clarification_request_message,
+    delegation_request_message as _delegation_request_message,
+    manual_hold_message as _manual_hold_message,
+)
 
 DEFAULT_MAX_TOOL_ROUNDS = config.TASK_MAX_TOOL_ROUNDS
-
-
-def _action_request_message(
-    task_id: str, description: str, tool_name: str, params: dict, tool_use_id: str, lead_text: str
-) -> dict:
-    return {
-        "id": new_id(),
-        "role": "assistant",
-        "type": "action_request",
-        "text": lead_text,
-        "payload": {
-            "taskId": task_id,
-            "description": description,
-            "tool": tool_name,
-            "params": params,
-            "toolUseId": tool_use_id,
-            "status": "pending",
-        },
-    }
-
-
-def _clarification_request_message(task_id: str, question: str, tool_use_id: str, lead_text: str) -> dict:
-    return {
-        "id": new_id(),
-        "role": "assistant",
-        "type": "clarification_request",
-        "text": lead_text,
-        "payload": {
-            "taskId": task_id,
-            "question": question,
-            "toolUseId": tool_use_id,
-            "status": "pending",
-        },
-    }
-
-
-def _manual_hold_message(task_id: str, note: str, tool_use_id: str, lead_text: str) -> dict:
-    return {
-        "id": new_id(),
-        "role": "assistant",
-        "type": "manual_hold",
-        "text": lead_text,
-        "payload": {
-            "taskId": task_id,
-            "note": note,
-            "toolUseId": tool_use_id,
-            "status": "pending",
-        },
-    }
-
-
-def _delegation_request_message(task_id: str, target_agent_id: str, target_agent_name: str, request: str, lead_text: str) -> dict:
-    return {
-        "id": new_id(),
-        "role": "assistant",
-        "type": "delegation_request",
-        "text": lead_text,
-        "payload": {
-            "taskId": task_id,
-            "targetAgentId": target_agent_id,
-            "targetAgentName": target_agent_name,
-            "request": request,
-            "status": "pending",
-        },
-    }
 
 
 async def _ingest_live_input(board_id: str, chat_id: str, seen_ids: set, anthropic_messages: List[dict]) -> None:
@@ -204,6 +145,7 @@ async def run_task_step(
     for _ in range(max_tool_rounds):
         await _ingest_live_input(board_id, chat["id"], seen_ids, anthropic_messages)
         await check_budget(agent_id, board_id)
+        call_started = time.monotonic()
         # Streamed rather than a plain `create()` call: a maxTokens this large
         # is enough to risk an HTTP timeout on a buffered response.
         async with client.messages.stream(
@@ -214,13 +156,18 @@ async def run_task_step(
             tools=tools.anthropic_tool_defs(model_config["model"], model_config["webSearchEnabled"]),
         ) as stream:
             response = await stream.get_final_message()
-        usage = getattr(response, "usage", None)
-        if usage is not None:
-            usd = budget_service.usd_for_usage(usage.input_tokens, usage.output_tokens)
-            await budget_service.record_spend(agent_id, board_id, task["id"], run_id, usd)
+        latency_ms = (time.monotonic() - call_started) * 1000
         text, tool_use = split_response(response)
 
+        async def _record(tool_call: Any) -> None:
+            await tracing.record_call(
+                agent_id=agent_id, board_id=board_id, task_id=task["id"], run_id=run_id,
+                response=response, system_prompt=system_prompt, request_messages=anthropic_messages,
+                tool_call=tool_call, latency_ms=latency_ms,
+            )
+
         if tool_use is None:
+            await _record(None)
             chat["messages"].append(
                 text_message("assistant", text or "Task completed with no additional output.")
             )
@@ -228,6 +175,7 @@ async def run_task_step(
 
         if tool_use.name == "ask_user":
             question = tool_use.input.get("question", "")
+            await _record({"name": "ask_user", "params": tool_use.input, "status": "awaiting_reply"})
             chat["messages"].append(
                 _clarification_request_message(task["id"], question, tool_use.id, text)
             )
@@ -235,6 +183,7 @@ async def run_task_step(
 
         if tool_use.name == "mark_manual":
             note = tool_use.input.get("note", "")
+            await _record({"name": "mark_manual", "params": tool_use.input, "status": "manual"})
             chat["messages"].append(
                 _manual_hold_message(task["id"], note, tool_use.id, text)
             )
@@ -242,6 +191,10 @@ async def run_task_step(
 
         if tool_use.name == "delegate_to_agent":
             outcome, detail = await _handle_delegate_to_agent(board, task, chat, tool_use, text)
+            await _record({
+                "name": "delegate_to_agent", "params": tool_use.input,
+                "result": detail if outcome == "refused" else None, "status": outcome,
+            })
             if outcome == "suspended":
                 return "awaiting_reply"
             anthropic_messages.append(assistant_turn(response, tool_use))
@@ -253,6 +206,11 @@ async def run_task_step(
                 board, task, run_id, model_config,
                 tool_use.input.get("instructions", ""), tool_use.input.get("allowedTools"),
             )
+            await _record({
+                "name": "delegate_subtask", "params": tool_use.input,
+                "result": result_text if pending_action is None else None,
+                "status": "awaiting_approval" if pending_action is not None else "done",
+            })
             if pending_action is not None:
                 chat["messages"].append(_action_request_message(
                     task["id"], pending_action["description"], pending_action["tool"],
@@ -265,6 +223,7 @@ async def run_task_step(
 
         spec = tools.TOOLS.get(tool_use.name)
         if spec is not None and spec.mutating:
+            await _record({"name": tool_use.name, "params": tool_use.input, "status": "awaiting_approval"})
             chat["messages"].append(_action_request_message(
                 task["id"], tools.describe_action(spec, tool_use.input), tool_use.name,
                 tool_use.input, tool_use.id, text,
@@ -274,6 +233,7 @@ async def run_task_step(
         result_text = (
             await tools.execute_tool(spec, tool_use.input, None) if spec else f"Unknown tool '{tool_use.name}'."
         )
+        await _record({"name": tool_use.name, "params": tool_use.input, "result": result_text, "status": "done"})
         anthropic_messages.append(assistant_turn(response, tool_use))
         anthropic_messages.append(tool_result_turn(tool_use.id, result_text))
 

@@ -3,6 +3,7 @@ from typing import Any, Iterable, Optional
 from pymongo import ReturnDocument
 
 from .database import boards_collection, task_runs_collection
+from .execution import glow
 from .execution.context import finish_task_run
 from .models import now_ms
 
@@ -62,11 +63,14 @@ async def transition_task_status(
         task_set[f"tasks.$.{key}"] = value
     task_set["updatedAt"] = now_ms()
 
-    return await boards_collection.find_one_and_update(
+    updated = await boards_collection.find_one_and_update(
         {"_id": board_id, "tasks": {"$elemMatch": task_match}},
         {"$set": task_set},
         return_document=ReturnDocument.AFTER,
     )
+    if updated is not None:
+        updated["glow"] = await glow.refresh_glow_for(updated)
+    return updated
 
 
 async def transition_board_status(
@@ -88,11 +92,14 @@ async def transition_board_status(
     updates = {"status": new_status, "updatedAt": now_ms()}
     updates.update(fields)
 
-    return await boards_collection.find_one_and_update(
+    updated = await boards_collection.find_one_and_update(
         match,
         {"$set": updates},
         return_document=ReturnDocument.AFTER,
     )
+    if updated is not None:
+        updated["glow"] = await glow.refresh_glow_for(updated)
+    return updated
 
 
 async def migrate_legacy_board_statuses() -> int:

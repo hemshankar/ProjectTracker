@@ -28,6 +28,8 @@
   var maxConcurrentTasksInput = document.getElementById("settings-max-concurrent-tasks");
   var maxToolRoundsInput = document.getElementById("settings-max-tool-rounds");
   var maxToolRoundsCeiling = 100;
+  var llmRetentionInput = document.getElementById("settings-llm-retention-days");
+  var llmRetentionCeiling = 365;
 
   var agentIdentityForm = document.getElementById("agent-identity-form");
   var agentNameInput = document.getElementById("settings-agent-name");
@@ -37,6 +39,30 @@
   var linksList = document.getElementById("settings-links-list");
   var linksForm = document.getElementById("settings-links-form");
   var linksTargetSelect = document.getElementById("settings-links-target-select");
+
+  var TAB_PANELS = {
+    config: document.getElementById("admin-tab-config"),
+    activity: document.getElementById("admin-tab-activity"),
+    traces: document.getElementById("admin-tab-traces")
+  };
+  var TAB_BUTTONS = {
+    config: document.getElementById("admin-tab-btn-config"),
+    activity: document.getElementById("admin-tab-btn-activity"),
+    traces: document.getElementById("admin-tab-btn-traces")
+  };
+
+  function activateTab(name){
+    Object.keys(TAB_PANELS).forEach(function(key){
+      TAB_PANELS[key].hidden = key !== name;
+      TAB_BUTTONS[key].classList.toggle("active", key === name);
+      TAB_BUTTONS[key].setAttribute("aria-selected", key === name ? "true" : "false");
+    });
+    if(window.AdminConsole) window.AdminConsole.onTabActivated(name, window.Identity.getCurrentAgentId());
+  }
+
+  Object.keys(TAB_BUTTONS).forEach(function(key){
+    TAB_BUTTONS[key].addEventListener("click", function(){ activateTab(key); });
+  });
 
   function renderModelOptions(limits){
     modelLimits = limits || {};
@@ -187,6 +213,10 @@
     maxToolRoundsCeiling = settings.maxToolRoundsCeiling || maxToolRoundsCeiling;
     maxToolRoundsInput.max = maxToolRoundsCeiling;
     maxToolRoundsInput.value = (settings.execution && settings.execution.maxToolRounds) || maxToolRoundsInput.value;
+
+    llmRetentionCeiling = settings.llmCallRetentionDaysCeiling || llmRetentionCeiling;
+    llmRetentionInput.max = llmRetentionCeiling;
+    llmRetentionInput.value = settings.llmCallRetentionDays || llmRetentionInput.value;
   }
 
   function renderLinksTargetOptions(){
@@ -275,6 +305,7 @@
     modal.hidden = false;
     savedMsg.hidden = true;
     agentSavedMsg.hidden = true;
+    activateTab("config");
     fillAgentIdentity();
     try{
       var settings = await window.Identity.apiGet("/agents/" + agentId + "/settings");
@@ -286,6 +317,7 @@
       renderBoardBudgetRows(boards);
       renderLinksTargetOptions();
       renderLinks(links);
+      if(window.AdminConsole) window.AdminConsole.setBoards(boards);
     }catch(e){
       close();
     }
@@ -314,6 +346,7 @@
     var maxTokens = parseInt(maxTokensInput.value, 10) || 1;
     if(ceiling) maxTokens = Math.min(Math.max(maxTokens, 1), ceiling);
     var maxToolRounds = Math.min(Math.max(parseInt(maxToolRoundsInput.value, 10) || 1, 1), maxToolRoundsCeiling);
+    var llmCallRetentionDays = Math.min(Math.max(parseInt(llmRetentionInput.value, 10) || 1, 1), llmRetentionCeiling);
     var payload = {
       tools: tools,
       rateLimits: rateLimits,
@@ -331,7 +364,8 @@
       },
       execution: {
         maxToolRounds: maxToolRounds
-      }
+      },
+      llmCallRetentionDays: llmCallRetentionDays
     };
     savedMsg.hidden = true;
     try{

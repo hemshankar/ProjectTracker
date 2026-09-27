@@ -53,6 +53,12 @@ GLOBAL_BUDGET_CAP_USD = float(_global_cap) if _global_cap else None
 ANTHROPIC_INPUT_COST_PER_MTOK = float(os.environ.get("ANTHROPIC_INPUT_COST_PER_MTOK", "3.0"))
 ANTHROPIC_OUTPUT_COST_PER_MTOK = float(os.environ.get("ANTHROPIC_OUTPUT_COST_PER_MTOK", "15.0"))
 
+# --- Observability (Phase 8) ---
+# Default retention window for `llm_calls` (full request/response/tool-call
+# detail) before a TTL index purges it — it's debug data, not the permanent
+# record (that's `audit_log`). Adjustable per Agent in the Config tab.
+DEFAULT_LLM_CALL_RETENTION_DAYS = int(os.environ.get("LLM_CALL_RETENTION_DAYS", "90"))
+
 RESOURCE_LOCK_TTL_MS = 2 * 60 * 1000
 RATE_LIMIT_WINDOW_MS = 24 * 60 * 60 * 1000
 RATE_LIMIT_POLL_SECONDS = 2

@@ -23,18 +23,54 @@ async def _sum_usd(match: dict) -> float:
     return total
 
 
-async def record_spend(agent_id: Optional[str], board_id: str, task_id: str, run_id: str, usd: float) -> None:
-    if usd <= 0:
-        return
-    await llm_calls_collection.insert_one({
+async def _retention_days(agent_id: Optional[str]) -> int:
+    if not agent_id:
+        return config.DEFAULT_LLM_CALL_RETENTION_DAYS
+    doc = await agent_settings_collection.find_one({"_id": agent_id}, {"llmCallRetentionDays": 1})
+    return (doc or {}).get("llmCallRetentionDays") or config.DEFAULT_LLM_CALL_RETENTION_DAYS
+
+
+async def record_llm_call(
+    agent_id: Optional[str],
+    board_id: str,
+    task_id: str,
+    run_id: Optional[str],
+    usd: float,
+    *,
+    parent_run_id: Optional[str] = None,
+    system_prompt: str = "",
+    request_messages: Optional[list] = None,
+    response_text: str = "",
+    tool_call: Optional[dict] = None,
+    input_tokens: int = 0,
+    output_tokens: int = 0,
+    latency_ms: float = 0.0,
+) -> dict:
+    """Inserts one full-detail `llm_calls` row — captured by default for
+    every model call, not opt-in (see Phase 8). `usd` still feeds the same
+    board/Agent/global budget check below; the rest is Traces-tab detail.
+    """
+    retention_days = await _retention_days(agent_id)
+    doc = {
         "_id": new_id(),
         "agentId": agent_id,
         "boardId": board_id,
         "taskId": task_id,
         "runId": run_id,
+        "parentRunId": parent_run_id,
+        "systemPrompt": system_prompt,
+        "messages": request_messages or [],
+        "response": response_text,
+        "toolCalls": [tool_call] if tool_call else [],
         "usd": usd,
+        "inputTokens": input_tokens,
+        "outputTokens": output_tokens,
+        "latencyMs": latency_ms,
         "ts": now_ms(),
-    })
+        "expiresAt": now_ms() + retention_days * 86_400_000,
+    }
+    await llm_calls_collection.insert_one(doc)
+    return doc
 
 
 async def check_exceeded(agent_id: Optional[str], board_id: str) -> Optional[str]:

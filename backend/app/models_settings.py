@@ -22,6 +22,11 @@ DEFAULT_MODEL = config.ANTHROPIC_MODEL if config.ANTHROPIC_MODEL in MODEL_MAX_TO
 # chains without letting a runaway task loop indefinitely.
 MAX_TOOL_ROUNDS_CEILING = 100
 
+# Ceiling for the per-Agent override of `llm_calls` retention (Phase 8) —
+# a year is generous debug-data retention without letting the collection
+# grow unbounded by mistake.
+LLM_CALL_RETENTION_DAYS_CEILING = 365
+
 
 class ToolSetting(BaseModel):
     enabled: bool = False
@@ -63,6 +68,7 @@ class AgentSettingsUpdate(BaseModel):
     modelConfig: Optional[ModelConfigUpdate] = None
     concurrency: Optional[ConcurrencySetting] = None
     execution: Optional[ExecutionSetting] = None
+    llmCallRetentionDays: Optional[int] = None
 
 
 def _default_rate_limits() -> dict:
@@ -82,6 +88,7 @@ def default_agent_settings(agent_id: str) -> dict:
         "modelConfig": default_model_config(),
         "concurrency": {"maxConcurrentTasks": None},
         "execution": {"maxToolRounds": config.TASK_MAX_TOOL_ROUNDS},
+        "llmCallRetentionDays": config.DEFAULT_LLM_CALL_RETENTION_DAYS,
     }
 
 
@@ -95,9 +102,12 @@ def settings_to_json(doc: dict) -> dict:
         "modelConfig": doc.get("modelConfig") or default_model_config(),
         "concurrency": doc.get("concurrency") or {"maxConcurrentTasks": None},
         "execution": {"maxToolRounds": execution.get("maxToolRounds") or config.TASK_MAX_TOOL_ROUNDS},
+        "llmCallRetentionDays": doc.get("llmCallRetentionDays") or config.DEFAULT_LLM_CALL_RETENTION_DAYS,
         # Ceilings for the settings UI to build its model picker and clamp
-        # the maxTokens/maxToolRounds inputs from — the backend stays the
-        # single source of truth instead of duplicating these in the frontend.
+        # the maxTokens/maxToolRounds/retention inputs from — the backend
+        # stays the single source of truth instead of duplicating these in
+        # the frontend.
         "modelLimits": MODEL_MAX_TOKENS,
         "maxToolRoundsCeiling": MAX_TOOL_ROUNDS_CEILING,
+        "llmCallRetentionDaysCeiling": LLM_CALL_RETENTION_DAYS_CEILING,
     }

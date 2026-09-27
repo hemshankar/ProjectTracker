@@ -18,8 +18,16 @@ async def write_audit(
     actor_id: Optional[str],
     before: Any = None,
     after: Any = None,
+    undo_redo: bool = False,
 ) -> None:
-    """Append one row to the audit log. Never updated or deleted afterward."""
+    """Append one row to the audit log. Never updated or deleted afterward.
+
+    `undo_redo` tags a write made by `services.undo_service` replaying a
+    prior entry's snapshot — excluded from `undo_service.list_undoable` so
+    the replay itself never becomes a fresh undo target, and from the
+    board-scoped Activity view's default reading of "what a human just did"
+    (still visible in the raw log for a full audit trail).
+    """
     await audit_log_collection.insert_one(
         {
             "_id": new_id(),
@@ -32,6 +40,7 @@ async def write_audit(
             "actorId": actor_id,
             "before": before,
             "after": after,
+            "undoRedo": undo_redo,
             "ts": now_ms(),
         }
     )

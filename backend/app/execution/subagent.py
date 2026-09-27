@@ -10,11 +10,11 @@ the task's primary run) with a display-friendly `transcript`, so the task
 detail view can show how many sub-agents worked a task and what they did —
 see `services/task_activity_service.py`.
 """
+import time
 from typing import Any, Dict, List, Optional, Tuple
 
 from ..chat_service import get_client
-from ..services import budget_service
-from . import context, tools
+from . import context, tools, tracing
 from .conversation import assistant_turn, build_task_system_prompt, split_response, tool_result_turn
 from .enforcement import BudgetExceededError, check_budget
 
@@ -72,9 +72,24 @@ async def run_subtask(
         if sub_run_id is not None:
             await context.finish_subagent_run(sub_run_id, status, transcript, error)
 
+    async def _record(response: Any, tool_call: Optional[dict], latency_ms: float) -> None:
+        # A sub-agent has no run of its own to bill against unless the
+        # caller actually gave it one (`context.start_subagent_run` needs a
+        # `parent_run_id`) — with neither, there's no task run to attribute
+        # this call to, so it's skipped rather than recorded orphaned.
+        if parent_run_id is None:
+            return
+        await tracing.record_call(
+            agent_id=agent_id, board_id=board_id, task_id=task["id"],
+            run_id=sub_run_id or parent_run_id, parent_run_id=parent_run_id,
+            response=response, system_prompt=system_prompt, request_messages=messages,
+            tool_call=tool_call, latency_ms=latency_ms,
+        )
+
     try:
         for _ in range(MAX_SUBAGENT_ROUNDS):
             await check_budget(agent_id, board_id)
+            call_started = time.monotonic()
             async with client.messages.stream(
                 model=model_config["model"],
                 max_tokens=model_config["maxTokens"],
@@ -83,23 +98,24 @@ async def run_subtask(
                 tools=tool_defs,
             ) as stream:
                 response = await stream.get_final_message()
-
-            usage = getattr(response, "usage", None)
-            if usage is not None and parent_run_id is not None:
-                usd = budget_service.usd_for_usage(usage.input_tokens, usage.output_tokens)
-                await budget_service.record_spend(agent_id, board_id, task["id"], parent_run_id, usd)
+            latency_ms = (time.monotonic() - call_started) * 1000
 
             text, tool_use = split_response(response)
             if text:
                 transcript.append({"role": "assistant", "text": text})
 
             if tool_use is None:
+                await _record(response, None, latency_ms)
                 await _finish("done")
                 return text or "Sub-agent finished with no output.", None
 
             spec = tools.TOOLS.get(tool_use.name)
             if spec is not None and spec.mutating:
                 description = tools.describe_action(spec, tool_use.input)
+                await _record(
+                    response, {"name": tool_use.name, "params": tool_use.input, "status": "awaiting_approval"},
+                    latency_ms,
+                )
                 transcript.append({"role": "assistant", "text": f"Proposed action (awaiting approval): {description}"})
                 await _finish("awaiting_approval")
                 return text, {
@@ -112,6 +128,10 @@ async def run_subtask(
             transcript.append({"role": "tool_call", "text": f"{tool_use.name}({tool_use.input})"})
             result_text = (
                 await tools.execute_tool(spec, tool_use.input, None) if spec else f"Unknown tool '{tool_use.name}'."
+            )
+            await _record(
+                response, {"name": tool_use.name, "params": tool_use.input, "result": result_text, "status": "done"},
+                latency_ms,
             )
             transcript.append({"role": "tool_result", "text": result_text})
             messages.append(assistant_turn(response, tool_use))

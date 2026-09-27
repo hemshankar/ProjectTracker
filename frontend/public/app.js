@@ -9,6 +9,7 @@
   var MIN_W = 220, MIN_H = 180;
   var ZOOM_MIN = 0.3, ZOOM_MAX = 2, ZOOM_STEP = 0.1, ZOOM_DEFAULT = 1;
   var zoom = ZOOM_DEFAULT;
+  var activeBoardStreams = [];
 
   var HUES = [
     {name:"blue",  var:"--hue-blue"},
@@ -45,6 +46,11 @@
   var apiPost = function(path, body){ return apiSend("POST", path, body === undefined ? {} : body); };
   var apiPatch = function(path, body){ return apiSend("PATCH", path, body); };
   var apiDelete = function(path){ return apiSend("DELETE", path); };
+
+  function agentQS(){
+    var id = window.Identity && window.Identity.getCurrentAgentId();
+    return id ? ("?agentId=" + encodeURIComponent(id)) : "";
+  }
 
   function systemPrefersDark(){
     return window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
@@ -170,7 +176,7 @@
   }
   function snapshotBoard(board){
     return {
-      id: board.id, title: board.title, description: board.description,
+      id: board.id, agentId: board.agentId, myRole: board.myRole, title: board.title, description: board.description,
       color: board.color, completed: !!board.completed,
       x: board.x, y: board.y, w: board.w, h: board.h, z: board.z,
       tasks: board.tasks.map(cloneTask)
@@ -179,7 +185,8 @@
 
   function restoreBoardFromSnapshot(snapshot){
     var restored = {
-      id: snapshot.id, title: snapshot.title, description: snapshot.description,
+      id: snapshot.id, agentId: snapshot.agentId, myRole: snapshot.myRole,
+      title: snapshot.title, description: snapshot.description,
       color: snapshot.color, completed: snapshot.completed,
       x: snapshot.x, y: snapshot.y, w: snapshot.w, h: snapshot.h,
       z: snapshot.z, tasks: snapshot.tasks.map(cloneTask)
@@ -188,7 +195,7 @@
     zCounter = Math.max(zCounter, restored.z) + 1;
     restored.z = zCounter;
     apiPost("/boards", {
-      id: restored.id, title: restored.title, description: restored.description,
+      id: restored.id, agentId: restored.agentId, title: restored.title, description: restored.description,
       color: restored.color, completed: restored.completed,
       x: restored.x, y: restored.y, w: restored.w, h: restored.h,
       z: restored.z, tasks: restored.tasks
@@ -299,6 +306,15 @@
   var chatBoardId = null;
   var chatAbortController = null;
 
+  var taskDetailModal = document.getElementById("task-detail-modal");
+  var taskDetailTitle = document.getElementById("task-detail-title");
+  var taskDetailSubtitle = document.getElementById("task-detail-subtitle");
+  var taskDetailClose = document.getElementById("task-detail-close");
+  var taskDetailBody = document.getElementById("task-detail-body");
+
+  var taskDetailBoardId = null;
+  var taskDetailTaskId = null;
+
   // ---------------- zoom ----------------
 
   function loadZoom(){
@@ -405,6 +421,7 @@
     renderView();
 
     function activate(){
+      if(opts.readOnly) return;
       if(el.isContentEditable) return;
       el.contentEditable = "true";
       el.textContent = opts.getValue();
@@ -448,6 +465,7 @@
   }
 
   function createCard(board){
+    var readOnly = board.myRole === "viewer";
     var el = document.createElement("div");
     el.className = "card";
     el.dataset.id = board.id;
@@ -465,6 +483,9 @@
         '<div class="card-header-actions">' +
           '<button class="icon-btn edit-title-btn" title="Rename board" aria-label="Rename board"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M13.4 3.6a1.4 1.4 0 0 1 2 0l1 1a1.4 1.4 0 0 1 0 2L7 15.2l-3.2.8.8-3.2 8.8-9.2Z"/><path d="M12 5l3 3"/></svg></button>' +
           '<button class="icon-btn color-btn" title="Change color" aria-label="Change color"><span class="color-dot"></span></button>' +
+          '<button class="icon-btn share-btn" title="Share board" aria-label="Share board"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="15" cy="5" r="2.2"/><circle cx="5" cy="10" r="2.2"/><circle cx="15" cy="15" r="2.2"/><path d="M7 8.8l6-2.6M7 11.2l6 2.6"/></svg></button>' +
+          '<button class="icon-btn start-btn" title="Start" aria-label="Start board"><svg viewBox="0 0 20 20" fill="currentColor" stroke="none"><path d="M6.5 4.3v11.4a1 1 0 0 0 1.53.85l8.9-5.7a1 1 0 0 0 0-1.7l-8.9-5.7a1 1 0 0 0-1.53.85Z"/></svg></button>' +
+          '<button class="icon-btn stop-btn" title="Stop" aria-label="Stop board" hidden><svg viewBox="0 0 20 20" fill="currentColor" stroke="none"><rect x="5.5" y="5.5" width="9" height="9" rx="1.5"/></svg></button>' +
           '<button class="icon-btn chat-btn" title="Chat about this board" aria-label="Chat about this board"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9.4a5.4 5.4 0 0 1 5.4-5.4h3.2a5.4 5.4 0 0 1 0 10.8H8l-3.6 2.6a.6.6 0 0 1-.95-.49L3.4 14a5.4 5.4 0 0 1-.4-2V9.4Z"/></svg></button>' +
           '<button class="icon-btn complete-btn" title="Mark board complete" aria-label="Mark board complete"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="10" r="7.3"/><path d="M6.7 10.2l2 2.1 4.4-4.6"/></svg></button>' +
           '<button class="icon-btn danger delete-btn" title="Delete board" aria-label="Delete board">&times;</button>' +
@@ -491,6 +512,7 @@
     var titleEditable = wireInlineEditable(titleEl, {
       editOnClick: false,
       allowDrag: true,
+      readOnly: readOnly,
       getValue: function(){ return board.title; },
       setValue: function(val){
         var before = board.title;
@@ -505,6 +527,7 @@
         }
       }
     });
+    el.querySelector(".edit-title-btn").disabled = readOnly;
     el.querySelector(".edit-title-btn").addEventListener("click", function(e){
       e.stopPropagation();
       titleEditable.activate();
@@ -512,6 +535,7 @@
 
     var subtitleEl = el.querySelector(".card-subtitle");
     wireInlineEditable(subtitleEl, {
+      readOnly: readOnly,
       getValue: function(){ return board.description || ""; },
       setValue: function(val){
         var before = board.description || "";
@@ -533,19 +557,86 @@
     var completedAnchor = el.querySelector(".completed-anchor");
     var completedBtn = el.querySelector(".completed-btn");
     var completedCountEl = el.querySelector(".completed-count");
+    var startBtn = el.querySelector(".start-btn");
+    var stopBtn = el.querySelector(".stop-btn");
+
+    function updateRunUI(){
+      var status = board.status || "idle";
+      var active = status === "queued" || status === "running";
+      var budgetStopped = status === "stopped" && board.statusReason === "budget_exceeded";
+      el.classList.toggle("processing", active);
+      el.classList.toggle("run-done", status === "done");
+      el.classList.toggle("run-stopped-budget", budgetStopped);
+      el.title = budgetStopped ? "Stopped: budget exceeded" : "";
+      startBtn.hidden = readOnly || active;
+      stopBtn.hidden = readOnly || !active;
+    }
+
+    startBtn.addEventListener("pointerdown", function(e){ e.stopPropagation(); });
+    startBtn.addEventListener("click", function(e){
+      e.stopPropagation();
+      if(readOnly) return;
+      apiPost("/boards/" + board.id + "/start").then(function(res){
+        board.status = res.status;
+        updateRunUI();
+      }).catch(function(){});
+    });
+
+    stopBtn.addEventListener("pointerdown", function(e){ e.stopPropagation(); });
+    stopBtn.addEventListener("click", function(e){
+      e.stopPropagation();
+      if(readOnly) return;
+      apiPost("/boards/" + board.id + "/stop").catch(function(){});
+    });
+
+    updateRunUI();
+
+    var eventSource = null;
+    try{
+      eventSource = new EventSource(API + "/boards/" + board.id + "/events");
+      eventSource.onmessage = function(ev){
+        var data;
+        try{ data = JSON.parse(ev.data); }catch(err){ return; }
+        if(data.taskId){
+          var t = findTask(board, data.taskId);
+          if(!t) return;
+          t.status = data.status;
+          t.done = data.status === "done";
+          renderTasks();
+          updateMeta();
+          renderCompletedPop();
+          refreshTaskDetailIfOpen(board.id, data.taskId);
+        } else if(data.boardId){
+          board.status = data.status;
+          board.statusReason = data.statusReason;
+          updateRunUI();
+        }
+      };
+      activeBoardStreams.push(eventSource);
+    }catch(e){}
 
     function renderTasks(){
       taskList.innerHTML = "";
       board.tasks.filter(function(t){ return !t.done; }).forEach(function(task){
         var li = document.createElement("li");
-        li.className = "task";
+        li.className = "task" + (task.status === "running" ? " running" : "") + (task.status === "queued" ? " queued" : "");
         li.setAttribute("data-done", "false");
         li.innerHTML =
           '<button class="task-check" aria-label="Mark task done">' + checkIcon() + "</button>" +
           '<span class="task-text" spellcheck="false"></span>' +
+          (task.status === "queued" ? '<span class="task-queued-badge">waiting…</span>' : "") +
+          '<button class="task-info" aria-label="View task activity">' + infoIcon() + "</button>" +
           '<button class="task-del" aria-label="Delete task">&times;</button>';
 
+        li.querySelector(".task-info").addEventListener("pointerdown", function(e){ e.stopPropagation(); });
+        li.querySelector(".task-info").addEventListener("click", function(e){
+          e.stopPropagation();
+          openTaskDetailModal(board.id, task);
+        });
+
+        li.querySelector(".task-check").disabled = readOnly;
         li.querySelector(".task-check").addEventListener("click", function(){
+          if(readOnly) return;
           task.done = true;
           renderTasks();
           updateMeta();
@@ -559,6 +650,7 @@
 
         var textEl = li.querySelector(".task-text");
         wireInlineEditable(textEl, {
+          readOnly: readOnly,
           getValue: function(){ return task.text; },
           setValue: function(val){
             var before = task.text;
@@ -586,8 +678,10 @@
           }
         });
 
+        li.querySelector(".task-del").disabled = readOnly;
         li.querySelector(".task-del").addEventListener("pointerdown", function(e){ e.stopPropagation(); });
         li.querySelector(".task-del").addEventListener("click", function(){
+          if(readOnly) return;
           var idx = board.tasks.indexOf(task);
           var snapshot = cloneTask(task);
           board.tasks = board.tasks.filter(function(t){ return t.id !== task.id; });
@@ -621,10 +715,18 @@
       li.innerHTML =
         '<button class="task-check" aria-label="Restore task">' + checkIcon() + "</button>" +
         '<span class="task-text"></span>' +
+        '<button class="task-info" aria-label="View task activity">' + infoIcon() + "</button>" +
         '<button class="task-del" aria-label="Delete task permanently">&times;</button>';
       li.querySelector(".task-text").innerHTML = linkify(task.text);
+      li.querySelector(".task-info").addEventListener("pointerdown", function(e){ e.stopPropagation(); });
+      li.querySelector(".task-info").addEventListener("click", function(e){
+        e.stopPropagation();
+        openTaskDetailModal(board.id, task);
+      });
+      li.querySelector(".task-check").disabled = readOnly;
       li.querySelector(".task-check").addEventListener("pointerdown", function(e){ e.stopPropagation(); });
       li.querySelector(".task-check").addEventListener("click", function(){
+        if(readOnly) return;
         task.done = false;
         renderTasks();
         updateMeta();
@@ -635,8 +737,10 @@
           redo: function(){ setTaskDone(board.id, task.id, false); }
         });
       });
+      li.querySelector(".task-del").disabled = readOnly;
       li.querySelector(".task-del").addEventListener("pointerdown", function(e){ e.stopPropagation(); });
       li.querySelector(".task-del").addEventListener("click", function(){
+        if(readOnly) return;
         var idx = board.tasks.indexOf(task);
         var snapshot = cloneTask(task);
         board.tasks = board.tasks.filter(function(t){ return t.id !== task.id; });
@@ -670,11 +774,12 @@
       var pop = document.createElement("div");
       pop.className = "completed-pop popover";
       pop.innerHTML =
-        '<div class="completed-pop-header"><span>Completed</span><button class="clear-completed-btn" type="button">Clear all</button></div>' +
+        '<div class="completed-pop-header"><span>Completed</span><button class="clear-completed-btn" type="button"' + (readOnly ? " disabled" : "") + '>Clear all</button></div>' +
         '<ul class="task-list"></ul>';
       pop.querySelector(".clear-completed-btn").addEventListener("pointerdown", function(ev){ ev.stopPropagation(); });
       pop.querySelector(".clear-completed-btn").addEventListener("click", function(ev){
         ev.stopPropagation();
+        if(readOnly) return;
         var removed = board.tasks.filter(function(t){ return t.done; }).map(cloneTask);
         board.tasks = board.tasks.filter(function(t){ return !t.done; });
         updateMeta();
@@ -696,10 +801,12 @@
 
     var form = el.querySelector(".task-add");
     var input = form.querySelector("input");
+    if(readOnly){ form.hidden = true; }
     input.addEventListener("pointerdown", function(e){ e.stopPropagation(); });
     form.addEventListener("pointerdown", function(e){ e.stopPropagation(); });
     form.addEventListener("submit", function(e){
       e.preventDefault();
+      if(readOnly) return;
       var val = input.value.trim();
       if(!val) return;
       input.value = "";
@@ -715,8 +822,10 @@
     });
 
     var colorBtn = el.querySelector(".color-btn");
+    colorBtn.disabled = readOnly;
     colorBtn.addEventListener("pointerdown", function(e){ e.stopPropagation(); });
     colorBtn.addEventListener("click", function(e){
+      if(readOnly) return;
       e.stopPropagation();
       var existing = el.querySelector(".color-pop");
       if(existing){ existing.remove(); return; }
@@ -747,6 +856,15 @@
       el.querySelector(".card-header-actions").appendChild(pop);
     });
 
+    var shareBtn = el.querySelector(".share-btn");
+    shareBtn.hidden = readOnly;
+    shareBtn.addEventListener("pointerdown", function(e){ e.stopPropagation(); });
+    shareBtn.addEventListener("click", function(e){
+      e.stopPropagation();
+      closeAllPopovers();
+      if(window.Sharing) window.Sharing.open(board);
+    });
+
     var chatBtn = el.querySelector(".chat-btn");
     chatBtn.addEventListener("pointerdown", function(e){ e.stopPropagation(); });
     chatBtn.addEventListener("click", function(e){
@@ -755,8 +873,10 @@
     });
 
     var completeBoardBtn = el.querySelector(".complete-btn");
+    completeBoardBtn.disabled = readOnly;
     completeBoardBtn.addEventListener("pointerdown", function(e){ e.stopPropagation(); });
     completeBoardBtn.addEventListener("click", function(e){
+      if(readOnly) return;
       e.stopPropagation();
       board.completed = true;
       renderAll();
@@ -768,8 +888,10 @@
     });
 
     var deleteBtn = el.querySelector(".delete-btn");
+    deleteBtn.disabled = readOnly;
     deleteBtn.addEventListener("pointerdown", function(e){ e.stopPropagation(); });
     deleteBtn.addEventListener("click", function(e){
+      if(readOnly) return;
       e.stopPropagation();
       var existing = el.querySelector(".confirm-pop");
       if(existing){ existing.remove(); return; }
@@ -786,6 +908,7 @@
         ev.stopPropagation();
         var snapshot = snapshotBoard(board);
         boards = boards.filter(function(b){ return b.id !== board.id; });
+        if(eventSource) eventSource.close();
         el.remove();
         updateCount();
         apiDelete("/boards/" + board.id).catch(function(){});
@@ -800,6 +923,7 @@
     // ---- drag ----
     var header = el.querySelector(".card-header");
     header.addEventListener("pointerdown", function(e){
+      if(readOnly) return;
       if(e.target.closest(".icon-btn, .popover")) return;
       var titleTarget = e.target.closest(".card-title");
       if(titleTarget && titleTarget.isContentEditable) return;
@@ -838,7 +962,9 @@
 
     // ---- resize ----
     var handle = el.querySelector(".resize-handle");
+    if(readOnly) handle.hidden = true;
     handle.addEventListener("pointerdown", function(e){
+      if(readOnly) return;
       e.preventDefault();
       e.stopPropagation();
       bringToFront(board, el);
@@ -905,7 +1031,90 @@
     chatTextarea.style.height = Math.min(chatTextarea.scrollHeight, 160) + "px";
   }
 
-  function buildChatMessageEl(m){
+  function buildActionRequestEl(board, chat, m){
+    var wrap = document.createElement("div");
+    wrap.className = "chat-msg chat-msg-assistant";
+    var col = document.createElement("div");
+    col.className = "action-msg-col";
+
+    if(m.text){
+      var bubble = document.createElement("div");
+      bubble.className = "chat-bubble";
+      bubble.innerHTML = linkify(m.text);
+      col.appendChild(bubble);
+    }
+
+    var payload = m.payload || {};
+    var card = document.createElement("div");
+    card.className = "action-card";
+
+    var desc = document.createElement("div");
+    desc.className = "action-card-desc";
+    desc.textContent = payload.description || ("Proposed action: " + payload.tool);
+    card.appendChild(desc);
+
+    var status = document.createElement("div");
+    status.className = "action-card-status action-status-" + (payload.status || "pending");
+    card.appendChild(status);
+
+    function renderStatus(){
+      if(payload.status === "approved"){
+        status.className = "action-card-status action-status-approved";
+        status.textContent = "Approved" + (payload.result ? " — " + payload.result : "");
+      } else if(payload.status === "rejected"){
+        status.className = "action-card-status action-status-rejected";
+        status.textContent = "Rejected";
+      } else {
+        status.className = "action-card-status action-status-pending";
+        status.textContent = "Waiting for approval";
+      }
+    }
+    renderStatus();
+
+    if(payload.status === "pending"){
+      var actions = document.createElement("div");
+      actions.className = "action-card-buttons";
+      var approveBtn = document.createElement("button");
+      approveBtn.type = "button";
+      approveBtn.className = "action-approve-btn";
+      approveBtn.textContent = "Approve";
+      var rejectBtn = document.createElement("button");
+      rejectBtn.type = "button";
+      rejectBtn.className = "action-reject-btn";
+      rejectBtn.textContent = "Reject";
+
+      function decide(approved){
+        approveBtn.disabled = true;
+        rejectBtn.disabled = true;
+        status.textContent = approved ? "Approving…" : "Rejecting…";
+        var path = "/boards/" + board.id + "/chats/" + chat.id + "/messages/" + m.id + "/" + (approved ? "approve" : "reject");
+        apiPost(path).then(function(resp){
+          board.chats = resp.chats;
+          board.activeChatId = resp.activeChatId;
+          board.tasks = resp.tasks;
+          board.status = resp.status;
+          if(chatBoardId === board.id) renderChatMessages();
+        }).catch(function(){
+          approveBtn.disabled = false;
+          rejectBtn.disabled = false;
+          renderStatus();
+        });
+      }
+
+      approveBtn.addEventListener("click", function(){ decide(true); });
+      rejectBtn.addEventListener("click", function(){ decide(false); });
+      actions.appendChild(approveBtn);
+      actions.appendChild(rejectBtn);
+      card.appendChild(actions);
+    }
+
+    col.appendChild(card);
+    wrap.appendChild(col);
+    return wrap;
+  }
+
+  function buildChatMessageEl(board, chat, m){
+    if(m.type === "action_request") return buildActionRequestEl(board, chat, m);
     var wrap = document.createElement("div");
     wrap.className = "chat-msg chat-msg-" + m.role;
     var bubble = document.createElement("div");
@@ -927,7 +1136,7 @@
       empty.textContent = "Ask about this board — priorities, next steps, drafts, anything.";
       chatModalBody.appendChild(empty);
     } else {
-      messages.forEach(function(m){ chatModalBody.appendChild(buildChatMessageEl(m)); });
+      messages.forEach(function(m){ chatModalBody.appendChild(buildChatMessageEl(board, chat, m)); });
     }
     chatModalBody.scrollTop = chatModalBody.scrollHeight;
   }
@@ -1149,9 +1358,116 @@
     });
   }
 
+  function buildTaskDetailMessageEl(m){
+    if(m.type === "action_request"){
+      var payload = m.payload || {};
+      var wrap = document.createElement("div");
+      wrap.className = "chat-msg chat-msg-assistant";
+      var col = document.createElement("div");
+      col.className = "action-msg-col";
+      if(m.text){
+        var bubble = document.createElement("div");
+        bubble.className = "chat-bubble";
+        bubble.innerHTML = linkify(m.text);
+        col.appendChild(bubble);
+      }
+      var card = document.createElement("div");
+      card.className = "action-card";
+      var desc = document.createElement("div");
+      desc.className = "action-card-desc";
+      desc.textContent = payload.description || ("Proposed action: " + payload.tool);
+      card.appendChild(desc);
+      var status = document.createElement("div");
+      if(payload.status === "approved"){
+        status.className = "action-card-status action-status-approved";
+        status.textContent = "Approved" + (payload.result ? " — " + payload.result : "");
+      } else if(payload.status === "rejected"){
+        status.className = "action-card-status action-status-rejected";
+        status.textContent = "Rejected";
+      } else {
+        status.className = "action-card-status action-status-pending";
+        status.textContent = "Waiting for approval";
+      }
+      card.appendChild(status);
+      col.appendChild(card);
+      wrap.appendChild(col);
+      return wrap;
+    }
+    var wrap = document.createElement("div");
+    wrap.className = "chat-msg chat-msg-" + m.role;
+    var bubble = document.createElement("div");
+    bubble.className = "chat-bubble";
+    bubble.innerHTML = m.text ? linkify(m.text) : "";
+    wrap.appendChild(bubble);
+    return wrap;
+  }
+
+  async function openTaskDetailModal(boardId, task){
+    var board = boards.find(function(b){ return b.id === boardId; });
+    if(!board) return;
+    taskDetailBoardId = boardId;
+    taskDetailTaskId = task.id;
+    taskDetailTitle.textContent = task.text || "Task";
+    taskDetailSubtitle.textContent = task.status ? ("Status: " + task.status) : "";
+    taskDetailModal.hidden = false;
+    closeAllPopovers();
+    taskDetailBody.innerHTML = '<div class="chat-empty">Loading&hellip;</div>';
+    try{
+      var data = await apiGet("/boards/" + boardId + "/tasks/" + task.id + "/messages");
+      if(taskDetailBoardId !== boardId || taskDetailTaskId !== task.id) return;
+      renderTaskDetailMessages(data.messages || []);
+    }catch(e){
+      if(taskDetailBoardId !== boardId || taskDetailTaskId !== task.id) return;
+      taskDetailBody.innerHTML = '<div class="chat-empty">Couldn&rsquo;t load this task&rsquo;s activity.</div>';
+    }
+  }
+
+  function renderTaskDetailMessages(messages){
+    taskDetailBody.innerHTML = "";
+    if(!messages.length){
+      var empty = document.createElement("div");
+      empty.className = "chat-empty";
+      empty.textContent = "No activity yet for this task.";
+      taskDetailBody.appendChild(empty);
+      return;
+    }
+    messages.forEach(function(m){ taskDetailBody.appendChild(buildTaskDetailMessageEl(m)); });
+    taskDetailBody.scrollTop = taskDetailBody.scrollHeight;
+  }
+
+  function closeTaskDetailModal(){
+    taskDetailModal.hidden = true;
+    taskDetailBoardId = null;
+    taskDetailTaskId = null;
+  }
+
+  function refreshTaskDetailIfOpen(boardId, taskId){
+    if(taskDetailBoardId !== boardId || taskDetailTaskId !== taskId) return;
+    apiGet("/boards/" + boardId + "/tasks/" + taskId + "/messages").then(function(data){
+      if(taskDetailBoardId !== boardId || taskDetailTaskId !== taskId) return;
+      renderTaskDetailMessages(data.messages || []);
+    }).catch(function(){});
+  }
+
+  function wireTaskDetailModal(){
+    taskDetailClose.addEventListener("click", closeTaskDetailModal);
+    taskDetailModal.addEventListener("mousedown", function(e){
+      if(e.target === taskDetailModal) closeTaskDetailModal();
+    });
+    document.addEventListener("keydown", function(e){
+      if(e.key === "Escape" && !taskDetailModal.hidden) closeTaskDetailModal();
+    });
+  }
+
+  function infoIcon(){
+    return '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="10" r="7.3"/><path d="M10 9.2v4M10 6.8h.01"/></svg>';
+  }
+
   // ---------------- boards ----------------
 
   function renderAll(){
+    activeBoardStreams.forEach(function(es){ try{ es.close(); }catch(e){} });
+    activeBoardStreams = [];
     canvas.innerHTML = "";
     boards.filter(function(b){ return !b.completed; }).forEach(function(board){
       canvas.appendChild(createCard(board));
@@ -1161,12 +1477,15 @@
   }
 
   async function addBoard(){
+    var agentId = window.Identity && window.Identity.getCurrentAgentId();
+    if(!agentId) return;
     var scrollLeft = canvasScroll.scrollLeft / zoom, scrollTop = canvasScroll.scrollTop / zoom;
     var count = boards.length;
     var x = clamp(scrollLeft + 50 + (count % 6) * 26, 0, CANVAS_W - 300);
     var y = clamp(scrollTop + 50 + (count % 6) * 26, 0, CANVAS_H - 260);
     try{
       var board = await apiPost("/boards", {
+        agentId: agentId,
         title: "New task list",
         description: "",
         color: HUES[count % HUES.length].name,
@@ -1217,6 +1536,7 @@
   }
 
   function buildArchiveItem(board){
+    var readOnly = board.myRole === "viewer";
     var li = document.createElement("li");
     li.className = "archive-item";
 
@@ -1233,8 +1553,10 @@
     restoreBtn.title = "Restore board";
     restoreBtn.setAttribute("aria-label", "Restore board");
     restoreBtn.innerHTML = '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8h8a4 4 0 0 1 0 8H9"/><path d="M9 5 6 8l3 3"/></svg>';
+    restoreBtn.disabled = readOnly;
     restoreBtn.addEventListener("pointerdown", function(e){ e.stopPropagation(); });
     restoreBtn.addEventListener("click", function(e){
+      if(readOnly) return;
       e.stopPropagation();
       board.completed = false;
       renderAll();
@@ -1252,6 +1574,7 @@
     deleteBtn.title = "Delete board permanently";
     deleteBtn.setAttribute("aria-label", "Delete board permanently");
     deleteBtn.textContent = "×";
+    deleteBtn.disabled = readOnly;
     wireArmedDelete(deleteBtn, function(){
       boards = boards.filter(function(b){ return b.id !== board.id; });
       renderAll();
@@ -1314,7 +1637,7 @@
       if(label) activeBtn.textContent = label;
     }
     function doClear(){
-      return apiPost("/boards/clear").then(function(newBoards){
+      return apiPost("/boards/clear" + agentQS()).then(function(newBoards){
         boards = newBoards;
         zCounter = 10;
         renderAll();
@@ -1338,7 +1661,7 @@
     clearExportBtn.addEventListener("click", function(ev){
       ev.stopPropagation();
       setBusy(clearExportBtn, "Exporting…");
-      downloadFromApi("/boards/export", "scatterboard-boards.json").then(function(){
+      downloadFromApi("/boards/export" + agentQS(), "scatterboard-boards.json").then(function(){
         return doClear();
       }).catch(function(){ fail(clearExportBtn, "Clear & Export"); });
     });
@@ -1379,11 +1702,11 @@
       '<button type="button" class="export-menu-item" data-kind="pdf">' + docIcon + "<span>Export as PDF</span></button>";
     pop.querySelector('[data-kind="json"]').addEventListener("click", function(ev){
       ev.stopPropagation();
-      runExportItem(ev.currentTarget, "/boards/export", "scatterboard-boards.json");
+      runExportItem(ev.currentTarget, "/boards/export" + agentQS(), "scatterboard-boards.json");
     });
     pop.querySelector('[data-kind="pdf"]').addEventListener("click", function(ev){
       ev.stopPropagation();
-      runExportItem(ev.currentTarget, "/boards/export/pdf", "scatterboard-summary.pdf");
+      runExportItem(ev.currentTarget, "/boards/export/pdf" + agentQS(), "scatterboard-summary.pdf");
     });
     exportAnchor.appendChild(pop);
   });
@@ -1436,7 +1759,7 @@
       });
       pop.querySelector(".confirm-yes").addEventListener("click", function(ev){
         ev.stopPropagation();
-        apiPost("/boards/import", {boards: parsed.boards}).then(function(newBoards){
+        apiPost("/boards/import" + agentQS(), {boards: parsed.boards}).then(function(newBoards){
           boards = newBoards;
           zCounter = boards.reduce(function(m, b){ return Math.max(m, b.z); }, 10);
           renderAll();
@@ -1452,20 +1775,32 @@
     reader.readAsText(file);
   });
 
+  async function reloadBoards(){
+    var agentId = window.Identity && window.Identity.getCurrentAgentId();
+    if(!agentId){ boards = []; renderAll(); return; }
+    try{
+      boards = await window.Identity.apiGet("/agents/" + agentId + "/boards");
+    }catch(e){
+      boards = [];
+    }
+    boards.forEach(function(b){ b.tasks = b.tasks || []; });
+    zCounter = boards.reduce(function(m, b){ return Math.max(m, b.z || 0); }, 10);
+    renderAll();
+  }
+
   async function init(){
     initTheme();
     initDescToggle();
     initZoom();
     initHistoryShortcuts();
     wireChatModal();
+    wireTaskDetailModal();
 
-    try{
-      boards = await apiGet("/boards");
-    }catch(e){
-      boards = [];
-    }
-    zCounter = boards.reduce(function(m, b){ return Math.max(m, b.z || 0); }, 10);
-    renderAll();
+    var session = await window.Identity.init();
+    if(!session) return;
+
+    window.Identity.onAgentChange(reloadBoards);
+    await reloadBoards();
   }
 
   init();

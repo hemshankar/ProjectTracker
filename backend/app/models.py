@@ -27,6 +27,7 @@ class TaskUpdate(BaseModel):
 
 
 class BoardCreate(BaseModel):
+    agentId: str
     id: Optional[str] = None
     title: Optional[str] = "New board"
     description: Optional[str] = ""
@@ -83,8 +84,16 @@ def sanitize_task(raw: dict) -> Optional[dict]:
     return {
         "id": (raw or {}).get("id") or new_id(),
         "text": text,
-        "done": bool((raw or {}).get("done")),
+        "status": "done" if bool((raw or {}).get("done")) else "idle",
+        "statusReason": None,
+        "currentRunId": None,
     }
+
+
+def task_to_json(task: dict) -> dict:
+    out = dict(task)
+    out["done"] = out.get("status") == "done"
+    return out
 
 
 def sanitize_import_board(raw: ImportBoard, index: int, z: int) -> dict:
@@ -108,6 +117,10 @@ def sanitize_import_board(raw: ImportBoard, index: int, z: int) -> dict:
         "tasks": tasks,
         "chats": [],
         "activeChatId": None,
+        "status": "idle",
+        "stopRequested": False,
+        "statusReason": None,
+        "budgetCapUsd": None,
         "createdAt": now_ms(),
         "updatedAt": now_ms(),
     }
@@ -116,8 +129,12 @@ def sanitize_import_board(raw: ImportBoard, index: int, z: int) -> dict:
 def board_to_json(doc: dict) -> dict:
     out = dict(doc)
     out["id"] = out.pop("_id")
-    out.setdefault("tasks", [])
+    out["tasks"] = [task_to_json(t) for t in out.get("tasks", [])]
     out.setdefault("chats", [])
+    out.setdefault("status", "idle")
+    out.setdefault("stopRequested", False)
+    out.setdefault("statusReason", None)
+    out.setdefault("budgetCapUsd", None)
     return out
 
 
@@ -132,7 +149,7 @@ def board_export_shape(doc: dict) -> dict:
         "w": doc.get("w", 290),
         "h": doc.get("h", 260),
         "tasks": [
-            {"text": t.get("text", ""), "done": bool(t.get("done", False))}
+            {"text": t.get("text", ""), "done": t.get("status") == "done"}
             for t in doc.get("tasks", [])
         ],
     }

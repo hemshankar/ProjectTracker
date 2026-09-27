@@ -8,11 +8,28 @@
 </head>
 <body>
 
-<div class="toolbar">
+<div class="login-screen" id="login-screen" hidden>
+  <div class="login-card">
+    <h1>Scatterboard</h1>
+    <p>Sign in with your Google account to see the Agents you&rsquo;ve been invited to.</p>
+    <a class="btn btn-primary" id="login-btn" href="/api/auth/google/login">
+      <svg viewBox="0 0 20 20" width="16" height="16"><path fill="#4285F4" d="M19.6 10.23c0-.68-.06-1.32-.17-1.94H10v3.9h5.38a4.6 4.6 0 0 1-2 3.02v2.5h3.23c1.9-1.75 2.99-4.32 2.99-7.48z"/><path fill="#34A853" d="M10 20c2.7 0 4.96-.9 6.62-2.42l-3.23-2.5c-.9.6-2.05.96-3.4.96-2.6 0-4.8-1.76-5.6-4.12H1.06v2.59A10 10 0 0 0 10 20z"/><path fill="#FBBC05" d="M4.4 11.92a6 6 0 0 1 0-3.84V5.49H1.06a10 10 0 0 0 0 9.02l3.34-2.59z"/><path fill="#EA4335" d="M10 3.98c1.47 0 2.79.5 3.83 1.5l2.87-2.87A9.96 9.96 0 0 0 10 0 10 10 0 0 0 1.06 5.49l3.34 2.6C5.2 5.73 7.4 3.98 10 3.98z"/></svg>
+      Sign in with Google
+    </a>
+  </div>
+</div>
+
+<div class="toolbar" id="app-toolbar" hidden>
   <div class="brand">
     <h1>Scatterboard</h1>
     <p>Drag by the header, resize from the corner &mdash; everything saves to the server.</p>
   </div>
+  <span class="anchor" id="agent-switcher-anchor">
+    <button class="btn agent-switcher-btn" id="agent-switcher-btn" type="button" title="Switch Agent">
+      <span id="agent-switcher-label">Select Agent&hellip;</span>
+      <svg viewBox="0 0 20 20" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 7.5l5 5 5-5"/></svg>
+    </button>
+  </span>
   <div class="toolbar-actions">
     <span class="count-pill" id="board-count">0 boards</span>
     <span class="zoom-controls" role="group" aria-label="Canvas zoom">
@@ -53,10 +70,21 @@
     <button class="btn btn-icon btn-primary" id="add-btn" type="button" title="New task list" aria-label="New task list">
       <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10 4v12M4 10h12"/></svg>
     </button>
+    <span class="anchor" id="settings-anchor">
+      <button class="btn btn-icon" id="settings-btn" type="button" hidden title="Agent settings" aria-label="Agent settings">
+        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="10" r="2.6"/><path d="M10 2.6v2.1M10 15.3v2.1M17.4 10h-2.1M4.7 10H2.6M15.1 4.9l-1.5 1.5M6.4 13.7l-1.5 1.5M15.1 15.1l-1.5-1.5M6.4 6.3L4.9 4.9"/></svg>
+      </button>
+    </span>
+    <span class="anchor" id="user-menu-anchor">
+      <button class="btn-icon user-menu-btn" id="user-menu-btn" type="button" title="Account" aria-label="Account menu">
+        <img id="user-avatar-img" alt="" hidden>
+        <span id="user-avatar-fallback">?</span>
+      </button>
+    </span>
   </div>
 </div>
 
-<div class="canvas-scroll" id="canvas-scroll">
+<div class="canvas-scroll" id="canvas-scroll" hidden>
   <div class="canvas-zoom" id="canvas-zoom">
     <div class="canvas" id="canvas"></div>
   </div>
@@ -92,6 +120,122 @@
   </div>
 </div>
 
+<div class="chat-modal" id="share-modal" hidden>
+  <div class="chat-modal-dialog share-modal-dialog">
+    <div class="chat-modal-header">
+      <div class="chat-modal-titles">
+        <div>
+          <h2 id="share-modal-title">Share board</h2>
+          <p>Invite a signed-in Google account as viewer or editor</p>
+        </div>
+      </div>
+      <div class="chat-modal-header-actions">
+        <button class="icon-btn chat-modal-close" id="share-modal-close" type="button" aria-label="Close share dialog">&times;</button>
+      </div>
+    </div>
+    <div class="chat-modal-body share-modal-body">
+      <form class="share-form" id="share-form">
+        <input type="email" id="share-email-input" placeholder="Email address" aria-label="Email address" required>
+        <select id="share-role-select" aria-label="Access level">
+          <option value="viewer">Viewer</option>
+          <option value="editor">Editor</option>
+        </select>
+        <button type="submit" class="btn btn-primary" id="share-submit-btn">Share</button>
+      </form>
+      <p class="share-error" id="share-error" hidden></p>
+      <ul class="share-list" id="share-list"></ul>
+    </div>
+  </div>
+</div>
+
+<div class="chat-modal" id="settings-modal" hidden>
+  <div class="chat-modal-dialog settings-modal-dialog">
+    <div class="chat-modal-header">
+      <div class="chat-modal-titles">
+        <div>
+          <h2 id="settings-modal-title">Agent settings</h2>
+          <p>Tool access and budget caps for this Agent</p>
+        </div>
+      </div>
+      <div class="chat-modal-header-actions">
+        <button class="icon-btn chat-modal-close" id="settings-modal-close" type="button" aria-label="Close settings">&times;</button>
+      </div>
+    </div>
+    <div class="chat-modal-body settings-modal-body">
+      <form id="settings-form">
+        <section class="settings-section">
+          <h3>Tool connections</h3>
+          <p class="settings-hint">Connect each tool through its own consent screen, then allow the Agent to use it. Sending a real email or creating a real calendar event needs both.</p>
+          <div class="settings-tool-list" id="settings-tool-list"></div>
+        </section>
+        <section class="settings-section">
+          <h3>Model</h3>
+          <p class="settings-hint">Which Claude model runs this Agent's tasks and chat, its output token ceiling, and whether it can search the web.</p>
+          <div class="settings-model-row">
+            <select id="settings-model-select" aria-label="Model"></select>
+            <input type="number" id="settings-max-tokens" min="1" step="1" aria-label="Max output tokens">
+          </div>
+          <label class="settings-tool-row">
+            <input type="checkbox" id="settings-web-search-enabled">
+            Enable web search for task runs
+          </label>
+        </section>
+        <section class="settings-section">
+          <h3>Budget</h3>
+          <p class="settings-hint">A spend ceiling for this Agent, shared across all of its boards. Hitting it halts a running board gracefully before its next step.</p>
+          <div class="settings-budget-row">
+            <input type="number" id="settings-budget-cap" min="0" step="0.01" placeholder="No cap set" aria-label="Budget cap">
+            <select id="settings-budget-unit" aria-label="Budget unit">
+              <option value="usd">USD</option>
+              <option value="tokens">Tokens</option>
+            </select>
+          </div>
+        </section>
+        <section class="settings-section">
+          <h3>Board budget overrides</h3>
+          <p class="settings-hint">Optional per-board cap. Leave blank to inherit the Agent budget above.</p>
+          <div class="settings-board-budget-list" id="settings-board-budget-list"></div>
+        </section>
+        <div class="settings-form-actions">
+          <button type="submit" class="btn btn-primary" id="settings-save-btn">Save</button>
+          <span class="settings-saved-msg" id="settings-saved-msg" hidden>Saved</span>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<div class="chat-modal" id="task-detail-modal" hidden>
+  <div class="chat-modal-dialog task-detail-modal-dialog">
+    <div class="chat-modal-header">
+      <div class="chat-modal-titles">
+        <div>
+          <h2 id="task-detail-title">Task</h2>
+          <p id="task-detail-subtitle"></p>
+        </div>
+      </div>
+      <div class="chat-modal-header-actions">
+        <button class="icon-btn chat-modal-close" id="task-detail-close" type="button" aria-label="Close task detail">&times;</button>
+      </div>
+    </div>
+    <div class="chat-modal-body" id="task-detail-body"></div>
+  </div>
+</div>
+
+<div class="agent-create-modal" id="agent-create-modal" hidden>
+  <div class="agent-create-dialog">
+    <h2>Name your Agent</h2>
+    <p>An Agent owns one Scatterboard &mdash; all of its boards, tasks, and chat.</p>
+    <form id="agent-create-form">
+      <input type="text" id="agent-create-input" placeholder="e.g. Marketing Agent" aria-label="Agent name" required>
+      <button type="submit" class="btn btn-primary">Create Agent</button>
+    </form>
+  </div>
+</div>
+
+<script src="identity.js"></script>
+<script src="sharing.js"></script>
+<script src="settings.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

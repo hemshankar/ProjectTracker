@@ -4,4 +4,34 @@ from . import config
 
 _client = AsyncIOMotorClient(config.MONGO_URI)
 db = _client[config.MONGO_DB_NAME]
+
 boards_collection = db["boards"]
+users_collection = db["users"]
+agents_collection = db["agents"]
+agent_members_collection = db["agent_members"]
+board_shares_collection = db["board_shares"]
+task_runs_collection = db["task_runs"]
+audit_log_collection = db["audit_log"]
+agent_settings_collection = db["agent_settings"]
+tool_connections_collection = db["tool_connections"]
+llm_calls_collection = db["llm_calls"]
+resource_locks_collection = db["resource_locks"]
+rate_limits_collection = db["rate_limits"]
+global_settings_collection = db["global_settings"]
+
+
+async def ensure_indexes():
+    await agent_members_collection.create_index(
+        [("agentId", 1), ("userId", 1)], unique=True
+    )
+    await board_shares_collection.create_index(
+        [("boardId", 1), ("userId", 1)], unique=True
+    )
+    await boards_collection.create_index("agentId")
+    await users_collection.create_index("email", unique=True)
+    await task_runs_collection.create_index([("boardId", 1), ("taskId", 1)])
+    await audit_log_collection.create_index([("agentId", 1), ("ts", 1)])
+    await audit_log_collection.create_index([("boardId", 1), ("ts", 1)])
+    await tool_connections_collection.create_index([("agentId", 1), ("toolType", 1)], unique=True)
+    await llm_calls_collection.create_index([("boardId", 1)])
+    await llm_calls_collection.create_index([("agentId", 1)])

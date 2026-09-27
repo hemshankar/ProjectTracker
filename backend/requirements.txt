@@ -5,3 +5,8 @@ pydantic==2.10.4
 python-dotenv==1.0.1
 anthropic==0.40.0
 reportlab==4.2.5
+httpx==0.28.1
+itsdangerous==2.2.0
+cryptography==43.0.3
+pytest==8.3.4
+pytest-asyncio==0.25.2

@@ -22,5 +22,5 @@ app.get("*", (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`Scatterboard frontend listening on ${PORT}, proxying /api -> ${BACKEND_URL}`);
+  console.log(`Manifestation Board frontend listening on ${PORT}, proxying /api -> ${BACKEND_URL}`);
 });

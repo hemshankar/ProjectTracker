@@ -25,6 +25,101 @@
     return getComputedStyle(document.documentElement).getPropertyValue(h.var).trim();
   }
 
+  // Labels are global (shared across every board, not per-agent), so the
+  // list is fetched once and cached for the session rather than reloaded
+  // per board or per agent switch.
+  var labelsCache = null;
+  var labelsById = {};
+
+  function ensureLabelsLoaded(){
+    if(labelsCache) return Promise.resolve(labelsCache);
+    return apiGet("/labels").then(function(list){
+      labelsCache = list;
+      labelsById = {};
+      list.forEach(function(l){ labelsById[l.id] = l; });
+      return list;
+    }).catch(function(){ return labelsCache || []; });
+  }
+
+  function labelInitial(board){
+    var l = board.labelId && labelsById[board.labelId];
+    return l ? l.name.trim().charAt(0).toUpperCase() : "";
+  }
+
+  // Builds the "assign a label" section appended below the color swatches
+  // in a board's color-pop popover — lists every shared label (global,
+  // reused across all boards) plus a small form to create a new one.
+  function buildLabelPopSection(el, board, pop){
+    var section = document.createElement("div");
+    section.className = "label-pop-section";
+    var list = document.createElement("div");
+    list.className = "label-pop-list";
+    section.appendChild(list);
+
+    function applyLabel(labelId){
+      var beforeLabel = board.labelId || "";
+      var afterLabel = labelId || "";
+      if(beforeLabel === afterLabel){ pop.remove(); return; }
+      var beforeColor = board.color;
+      // A board's color is locked to its label — picking one recolors the
+      // board to match; clearing one just unlocks the swatches and leaves
+      // whatever color was already showing.
+      var afterColor = afterLabel && labelsById[afterLabel] ? labelsById[afterLabel].color : board.color;
+      board.labelId = afterLabel;
+      board.color = afterColor;
+      el.style.setProperty("--card-hue", hueValue(afterColor));
+      el.querySelector(".color-dot").textContent = labelInitial(board);
+      pop.remove();
+      apiPatch("/boards/" + board.id, {labelId: afterLabel, color: afterColor}).catch(function(){});
+      pushHistory({
+        undo: function(){ setBoardLabelAndColor(board.id, beforeLabel, beforeColor); },
+        redo: function(){ setBoardLabelAndColor(board.id, afterLabel, afterColor); }
+      });
+    }
+
+    function renderChips(){
+      list.innerHTML = "";
+      var none = document.createElement("button");
+      none.type = "button";
+      none.className = "label-chip" + (!board.labelId ? " active" : "");
+      none.textContent = "No label";
+      none.addEventListener("click", function(ev){ ev.stopPropagation(); applyLabel(""); });
+      list.appendChild(none);
+      (labelsCache || []).forEach(function(l){
+        var chip = document.createElement("button");
+        chip.type = "button";
+        chip.className = "label-chip" + (board.labelId === l.id ? " active" : "");
+        chip.textContent = l.name;
+        chip.addEventListener("click", function(ev){ ev.stopPropagation(); applyLabel(l.id); });
+        list.appendChild(chip);
+      });
+    }
+
+    renderChips();
+    ensureLabelsLoaded().then(renderChips);
+
+    var form = document.createElement("form");
+    form.className = "label-pop-new";
+    form.innerHTML = '<input type="text" placeholder="New label&hellip;" maxlength="16"><button type="submit">+</button>';
+    form.addEventListener("click", function(ev){ ev.stopPropagation(); });
+    form.addEventListener("submit", function(ev){
+      ev.preventDefault();
+      var input = form.querySelector("input");
+      var name = input.value.trim();
+      if(!name) return;
+      input.disabled = true;
+      apiPost("/labels", {name: name, color: board.color}).then(function(label){
+        labelsCache = (labelsCache || []).concat([label]);
+        labelsById[label.id] = label;
+        applyLabel(label.id);
+      }).catch(function(){
+        input.disabled = false;
+      });
+    });
+    section.appendChild(form);
+    return section;
+  }
+
   // ---------------- API helpers ----------------
 
   async function apiGet(path){
@@ -177,7 +272,7 @@
   function snapshotBoard(board){
     return {
       id: board.id, agentId: board.agentId, myRole: board.myRole, title: board.title, description: board.description,
-      color: board.color, completed: !!board.completed,
+      color: board.color, labelId: board.labelId, completed: !!board.completed,
       x: board.x, y: board.y, w: board.w, h: board.h, z: board.z,
       tasks: board.tasks.map(cloneTask)
     };
@@ -187,7 +282,7 @@
     var restored = {
       id: snapshot.id, agentId: snapshot.agentId, myRole: snapshot.myRole,
       title: snapshot.title, description: snapshot.description,
-      color: snapshot.color, completed: snapshot.completed,
+      color: snapshot.color, labelId: snapshot.labelId, completed: snapshot.completed,
       x: snapshot.x, y: snapshot.y, w: snapshot.w, h: snapshot.h,
       z: snapshot.z, tasks: snapshot.tasks.map(cloneTask)
     };
@@ -196,7 +291,7 @@
     restored.z = zCounter;
     apiPost("/boards", {
       id: restored.id, agentId: restored.agentId, title: restored.title, description: restored.description,
-      color: restored.color, completed: restored.completed,
+      color: restored.color, labelId: restored.labelId, completed: restored.completed,
       x: restored.x, y: restored.y, w: restored.w, h: restored.h,
       z: restored.z, tasks: restored.tasks
     }).catch(function(){});
@@ -213,6 +308,17 @@
     b[field] = value;
     var patch = {}; patch[field] = value;
     apiPatch("/boards/" + boardId, patch).catch(function(){});
+    renderAll();
+  }
+  // Label and color always move together: a board's color is locked to its
+  // label, so undoing/redoing a label change has to restore both at once
+  // rather than leaving color out of sync with what the label dictates.
+  function setBoardLabelAndColor(boardId, labelId, color){
+    var b = findBoard(boardId);
+    if(!b) return;
+    b.labelId = labelId || "";
+    b.color = color;
+    apiPatch("/boards/" + boardId, {labelId: labelId || "", color: color}).catch(function(){});
     renderAll();
   }
   function setBoardPosition(boardId, x, y){
@@ -311,9 +417,22 @@
   var taskDetailSubtitle = document.getElementById("task-detail-subtitle");
   var taskDetailClose = document.getElementById("task-detail-close");
   var taskDetailBody = document.getElementById("task-detail-body");
+  var taskDetailRunBtn = document.getElementById("task-detail-run-btn");
+  var taskDetailStopBtn = document.getElementById("task-detail-stop-btn");
+  var taskDetailForm = document.getElementById("task-detail-form");
+  var taskDetailTextarea = document.getElementById("task-detail-textarea");
+  var taskDetailSendBtn = document.getElementById("task-detail-send");
+
+  var TASK_RUNNABLE_STATUSES = {idle: true, failed: true, stopped: true, blocked: true};
+  var TASK_STOPPABLE_STATUSES = {
+    running: true, queued: true, awaiting_approval: true, awaiting_reply: true,
+    awaiting_clarification: true, manual: true
+  };
 
   var taskDetailBoardId = null;
   var taskDetailTaskId = null;
+  var taskDetailChatId = null;
+  var taskDetailSending = false;
 
   // ---------------- zoom ----------------
 
@@ -602,6 +721,7 @@
           if(!t) return;
           t.status = data.status;
           t.done = data.status === "done";
+          if("statusReason" in data) t.statusReason = data.statusReason;
           renderTasks();
           updateMeta();
           renderCompletedPop();
@@ -619,19 +739,62 @@
       taskList.innerHTML = "";
       board.tasks.filter(function(t){ return !t.done; }).forEach(function(task){
         var li = document.createElement("li");
-        li.className = "task" + (task.status === "running" ? " running" : "") + (task.status === "queued" ? " queued" : "");
+        li.className = "task" +
+          (task.status === "running" ? " running" : "") +
+          (task.status === "queued" ? " queued" : "") +
+          (task.status === "awaiting_clarification" ? " needs-input" : "") +
+          (task.status === "manual" ? " manual-pending" : "");
         li.setAttribute("data-done", "false");
+        var badge = task.status === "queued" ? '<span class="task-queued-badge">waiting…</span>'
+          : task.status === "awaiting_clarification" ? '<span class="task-queued-badge">question&hellip;</span>'
+          : task.status === "manual" ? '<span class="task-queued-badge">manual pending&hellip;</span>'
+          : (task.status === "idle" && task.statusReason) ? '<span class="task-queued-badge">' + task.statusReason + '</span>'
+          : "";
+        var runnable = !readOnly && TASK_RUNNABLE_STATUSES[task.status];
+        var stoppable = !readOnly && TASK_STOPPABLE_STATUSES[task.status];
         li.innerHTML =
           '<button class="task-check" aria-label="Mark task done">' + checkIcon() + "</button>" +
           '<span class="task-text" spellcheck="false"></span>' +
-          (task.status === "queued" ? '<span class="task-queued-badge">waiting…</span>' : "") +
-          '<button class="task-info" aria-label="View task activity">' + infoIcon() + "</button>" +
+          badge +
+          (runnable ? '<button class="task-run-btn" title="Run this task" aria-label="Run this task">' + runIcon() + "</button>" : "") +
+          (stoppable ? '<button class="task-stop-btn" title="Stop this task" aria-label="Stop this task">' + stopIcon() + "</button>" : "") +
+          '<button class="task-edit-btn" aria-label="Edit task text">' + pencilIcon() + "</button>" +
           '<button class="task-del" aria-label="Delete task">&times;</button>';
 
-        li.querySelector(".task-info").addEventListener("pointerdown", function(e){ e.stopPropagation(); });
-        li.querySelector(".task-info").addEventListener("click", function(e){
+        if(runnable){
+          var runBtn = li.querySelector(".task-run-btn");
+          runBtn.addEventListener("pointerdown", function(e){ e.stopPropagation(); });
+          runBtn.addEventListener("click", function(e){
+            e.stopPropagation();
+            runBtn.disabled = true;
+            apiPost("/boards/" + board.id + "/tasks/" + task.id + "/run").then(function(resp){
+              if(resp && resp.tasks){ board.tasks = resp.tasks; board.status = resp.status; }
+              renderTasks();
+              updateMeta();
+            }).catch(function(){ runBtn.disabled = false; });
+          });
+        }
+
+        if(stoppable){
+          var stopBtnEl = li.querySelector(".task-stop-btn");
+          stopBtnEl.addEventListener("pointerdown", function(e){ e.stopPropagation(); });
+          stopBtnEl.addEventListener("click", function(e){
+            e.stopPropagation();
+            stopBtnEl.disabled = true;
+            apiPost("/boards/" + board.id + "/tasks/" + task.id + "/stop").then(function(resp){
+              if(resp && resp.tasks){ board.tasks = resp.tasks; board.status = resp.status; }
+              renderTasks();
+              updateMeta();
+            }).catch(function(){ stopBtnEl.disabled = false; });
+          });
+        }
+
+        li.querySelector(".task-edit-btn").disabled = readOnly;
+        li.querySelector(".task-edit-btn").addEventListener("pointerdown", function(e){ e.stopPropagation(); });
+        li.querySelector(".task-edit-btn").addEventListener("click", function(e){
           e.stopPropagation();
-          openTaskDetailModal(board.id, task);
+          if(readOnly) return;
+          textEditable.activate();
         });
 
         li.querySelector(".task-check").disabled = readOnly;
@@ -649,7 +812,8 @@
         });
 
         var textEl = li.querySelector(".task-text");
-        wireInlineEditable(textEl, {
+        var textEditable = wireInlineEditable(textEl, {
+          editOnClick: false,
           readOnly: readOnly,
           getValue: function(){ return task.text; },
           setValue: function(val){
@@ -676,6 +840,13 @@
               redo: function(){ removeTask(board.id, snapshot.id); }
             });
           }
+        });
+
+        li.addEventListener("click", function(e){
+          if(readOnly) return;
+          if(e.target.closest(".task-check, .task-run-btn, .task-stop-btn, .task-edit-btn, .task-del, a")) return;
+          if(textEl.isContentEditable) return;
+          openTaskDetailModal(board.id, task);
         });
 
         li.querySelector(".task-del").disabled = readOnly;
@@ -715,12 +886,10 @@
       li.innerHTML =
         '<button class="task-check" aria-label="Restore task">' + checkIcon() + "</button>" +
         '<span class="task-text"></span>' +
-        '<button class="task-info" aria-label="View task activity">' + infoIcon() + "</button>" +
         '<button class="task-del" aria-label="Delete task permanently">&times;</button>';
       li.querySelector(".task-text").innerHTML = linkify(task.text);
-      li.querySelector(".task-info").addEventListener("pointerdown", function(e){ e.stopPropagation(); });
-      li.querySelector(".task-info").addEventListener("click", function(e){
-        e.stopPropagation();
+      li.addEventListener("click", function(e){
+        if(e.target.closest(".task-check, .task-del, a")) return;
         openTaskDetailModal(board.id, task);
       });
       li.querySelector(".task-check").disabled = readOnly;
@@ -822,6 +991,8 @@
     });
 
     var colorBtn = el.querySelector(".color-btn");
+    var colorDot = el.querySelector(".color-dot");
+    colorDot.textContent = labelInitial(board);
     colorBtn.disabled = readOnly;
     colorBtn.addEventListener("pointerdown", function(e){ e.stopPropagation(); });
     colorBtn.addEventListener("click", function(e){
@@ -832,10 +1003,18 @@
       closeAllPopovers();
       var pop = document.createElement("div");
       pop.className = "color-pop popover";
+
+      // A labeled board's color is locked to its label — the swatches are
+      // disabled rather than removed, so it's still visible what color a
+      // board would take if the label were removed.
+      var colorLocked = !!board.labelId;
+      var swatchGrid = document.createElement("div");
+      swatchGrid.className = "color-swatch-grid" + (colorLocked ? " locked" : "");
       HUES.forEach(function(h){
         var b = document.createElement("button");
         b.style.background = hueValue(h.name);
         b.title = h.name;
+        b.disabled = colorLocked;
         b.addEventListener("click", function(ev){
           ev.stopPropagation();
           var before = board.color;
@@ -851,8 +1030,16 @@
             });
           }
         });
-        pop.appendChild(b);
+        swatchGrid.appendChild(b);
       });
+      pop.appendChild(swatchGrid);
+      if(colorLocked){
+        var lockNote = document.createElement("div");
+        lockNote.className = "color-lock-note";
+        lockNote.textContent = "Color is locked to this board's label";
+        pop.appendChild(lockNote);
+      }
+      pop.appendChild(buildLabelPopSection(el, board, pop));
       el.querySelector(".card-header-actions").appendChild(pop);
     });
 
@@ -1094,6 +1281,7 @@
           board.tasks = resp.tasks;
           board.status = resp.status;
           if(chatBoardId === board.id) renderChatMessages();
+          if(taskDetailBoardId === board.id && taskDetailTaskId === (m.payload || {}).taskId) loadTaskDetail(board.id, taskDetailTaskId);
         }).catch(function(){
           approveBtn.disabled = false;
           rejectBtn.disabled = false;
@@ -1113,8 +1301,46 @@
     return wrap;
   }
 
+  function buildDelegationRequestEl(m){
+    var wrap = document.createElement("div");
+    wrap.className = "chat-msg chat-msg-assistant";
+    var col = document.createElement("div");
+    col.className = "action-msg-col";
+
+    if(m.text){
+      var bubble = document.createElement("div");
+      bubble.className = "chat-bubble";
+      bubble.innerHTML = linkify(m.text);
+      col.appendChild(bubble);
+    }
+
+    var payload = m.payload || {};
+    var card = document.createElement("div");
+    card.className = "action-card";
+
+    var desc = document.createElement("div");
+    desc.className = "action-card-desc";
+    desc.textContent = "Delegated to " + (payload.targetAgentName || "another Agent") + ": " + (payload.request || "");
+    card.appendChild(desc);
+
+    var status = document.createElement("div");
+    if(payload.status === "resolved"){
+      status.className = "action-card-status action-status-approved";
+      status.textContent = "Resolved" + (payload.result ? " — " + payload.result : "");
+    } else {
+      status.className = "action-card-status action-status-pending";
+      status.textContent = "Waiting on delegated Agent…";
+    }
+    card.appendChild(status);
+
+    col.appendChild(card);
+    wrap.appendChild(col);
+    return wrap;
+  }
+
   function buildChatMessageEl(board, chat, m){
     if(m.type === "action_request") return buildActionRequestEl(board, chat, m);
+    if(m.type === "delegation_request") return buildDelegationRequestEl(m);
     var wrap = document.createElement("div");
     wrap.className = "chat-msg chat-msg-" + m.role;
     var bubble = document.createElement("div");
@@ -1358,7 +1584,69 @@
     });
   }
 
+  function buildClarificationRequestEl(m){
+    var payload = m.payload || {};
+    var wrap = document.createElement("div");
+    wrap.className = "chat-msg chat-msg-assistant";
+    var col = document.createElement("div");
+    col.className = "action-msg-col";
+    var bubble = document.createElement("div");
+    bubble.className = "chat-bubble";
+    bubble.innerHTML = linkify(m.text || payload.question || "");
+    col.appendChild(bubble);
+    var card = document.createElement("div");
+    card.className = "action-card";
+    var status = document.createElement("div");
+    if(payload.status === "answered"){
+      status.className = "action-card-status action-status-approved";
+      status.textContent = "Answered" + (payload.answer ? " — " + payload.answer : "");
+    } else {
+      status.className = "action-card-status action-status-pending";
+      status.textContent = "Waiting for your answer — reply below";
+    }
+    card.appendChild(status);
+    col.appendChild(card);
+    wrap.appendChild(col);
+    return wrap;
+  }
+
+  function buildManualHoldEl(m){
+    var payload = m.payload || {};
+    var wrap = document.createElement("div");
+    wrap.className = "chat-msg chat-msg-assistant";
+    var col = document.createElement("div");
+    col.className = "action-msg-col";
+    var bubble = document.createElement("div");
+    bubble.className = "chat-bubble";
+    bubble.innerHTML = linkify(m.text || payload.note || "");
+    col.appendChild(bubble);
+    var card = document.createElement("div");
+    card.className = "action-card";
+    var status = document.createElement("div");
+    if(payload.status === "resolved"){
+      status.className = "action-card-status action-status-approved";
+      status.textContent = "Resolved" + (payload.resolution ? " — " + payload.resolution : "");
+    } else {
+      status.className = "action-card-status action-status-pending";
+      status.textContent = "Waiting on an external reply — reply below once you know what happened";
+    }
+    card.appendChild(status);
+    col.appendChild(card);
+    wrap.appendChild(col);
+    return wrap;
+  }
+
+  function buildOwnTaskMessageEl(board, chat, m){
+    if(m.type === "action_request") return buildActionRequestEl(board, chat, m);
+    if(m.type === "clarification_request") return buildClarificationRequestEl(m);
+    if(m.type === "manual_hold") return buildManualHoldEl(m);
+    return buildTaskDetailMessageEl(m);
+  }
+
   function buildTaskDetailMessageEl(m){
+    if(m.type === "delegation_request") return buildDelegationRequestEl(m);
+    if(m.type === "clarification_request") return buildClarificationRequestEl(m);
+    if(m.type === "manual_hold") return buildManualHoldEl(m);
     if(m.type === "action_request"){
       var payload = m.payload || {};
       var wrap = document.createElement("div");
@@ -1407,31 +1695,170 @@
     if(!board) return;
     taskDetailBoardId = boardId;
     taskDetailTaskId = task.id;
+    taskDetailChatId = null;
     taskDetailTitle.textContent = task.text || "Task";
     taskDetailSubtitle.textContent = task.status ? ("Status: " + task.status) : "";
+    var runnable = TASK_RUNNABLE_STATUSES[task.status] && board.myRole !== "viewer";
+    var stoppable = TASK_STOPPABLE_STATUSES[task.status] && board.myRole !== "viewer";
+    taskDetailRunBtn.hidden = !runnable;
+    taskDetailRunBtn.disabled = !runnable;
+    taskDetailStopBtn.hidden = !stoppable;
+    taskDetailStopBtn.disabled = !stoppable;
     taskDetailModal.hidden = false;
     closeAllPopovers();
     taskDetailBody.innerHTML = '<div class="chat-empty">Loading&hellip;</div>';
+    taskDetailTextarea.value = "";
+    await loadTaskDetail(boardId, task.id);
+    if(taskDetailBoardId === boardId && taskDetailTaskId === task.id) taskDetailTextarea.focus();
+  }
+
+  async function loadTaskDetail(boardId, taskId){
+    var board = boards.find(function(b){ return b.id === boardId; });
+    if(!board) return;
     try{
-      var data = await apiGet("/boards/" + boardId + "/tasks/" + task.id + "/messages");
-      if(taskDetailBoardId !== boardId || taskDetailTaskId !== task.id) return;
-      renderTaskDetailMessages(data.messages || []);
+      var results = await Promise.all([
+        apiGet("/boards/" + boardId + "/tasks/" + taskId + "/activity"),
+        apiGet("/boards/" + boardId + "/tasks/" + taskId + "/chat")
+      ]);
+      if(taskDetailBoardId !== boardId || taskDetailTaskId !== taskId) return;
+      var activity = results[0];
+      var chatData = results[1];
+      taskDetailChatId = chatData.chatId;
+      renderTaskDetailActivity(board, {id: chatData.chatId, messages: chatData.messages}, activity);
     }catch(e){
-      if(taskDetailBoardId !== boardId || taskDetailTaskId !== task.id) return;
+      if(taskDetailBoardId !== boardId || taskDetailTaskId !== taskId) return;
       taskDetailBody.innerHTML = '<div class="chat-empty">Couldn&rsquo;t load this task&rsquo;s activity.</div>';
     }
   }
 
-  function renderTaskDetailMessages(messages){
+  function buildCountsSummary(counts){
+    var el = document.createElement("div");
+    el.className = "task-detail-counts";
+    var parts = [
+      (counts.agents || 0) + " agent" + (counts.agents === 1 ? "" : "s"),
+      (counts.subAgents || 0) + " sub-agent" + (counts.subAgents === 1 ? "" : "s"),
+      (counts.peerAgents || 0) + " peer Agent" + (counts.peerAgents === 1 ? "" : "s"),
+    ];
+    el.textContent = parts.join(" · ") + " have worked this task";
+    return el;
+  }
+
+  function buildTranscriptEl(transcript){
+    var list = document.createElement("div");
+    list.className = "transcript-list";
+    (transcript || []).forEach(function(entry){
+      var row = document.createElement("div");
+      row.className = "transcript-entry transcript-role-" + (entry.role || "text");
+      var roleLabel = document.createElement("span");
+      roleLabel.className = "transcript-role-label";
+      roleLabel.textContent = entry.role === "tool_call" ? "tool call"
+        : entry.role === "tool_result" ? "tool result"
+        : entry.role;
+      row.appendChild(roleLabel);
+      var textEl = document.createElement("span");
+      textEl.className = "transcript-text";
+      textEl.textContent = entry.text || "";
+      row.appendChild(textEl);
+      list.appendChild(row);
+    });
+    return list;
+  }
+
+  function buildSubAgentSection(subAgentRuns){
+    var details = document.createElement("details");
+    details.className = "task-detail-collapsible";
+    var summary = document.createElement("summary");
+    summary.textContent = "Sub-agent activity (" + subAgentRuns.length + ")";
+    details.appendChild(summary);
+    if(!subAgentRuns.length){
+      var empty = document.createElement("p");
+      empty.className = "settings-hint";
+      empty.textContent = "No sub-agents were spun up for this task.";
+      details.appendChild(empty);
+      return details;
+    }
+    subAgentRuns.forEach(function(run){
+      var card = document.createElement("div");
+      card.className = "subagent-run-card";
+      var header = document.createElement("div");
+      header.className = "subagent-run-header";
+      header.textContent = (run.instructions || "Sub-agent") + " — " + run.status;
+      card.appendChild(header);
+      if(run.allowedTools && run.allowedTools.length){
+        var toolsEl = document.createElement("div");
+        toolsEl.className = "subagent-run-tools";
+        toolsEl.textContent = "Tools: " + run.allowedTools.join(", ");
+        card.appendChild(toolsEl);
+      }
+      card.appendChild(buildTranscriptEl(run.transcript));
+      details.appendChild(card);
+    });
+    return details;
+  }
+
+  function buildPeerAgentSection(peerDelegations){
+    var details = document.createElement("details");
+    details.className = "task-detail-collapsible";
+    var summary = document.createElement("summary");
+    summary.textContent = "Peer Agent conversation (" + peerDelegations.length + ")";
+    details.appendChild(summary);
+    if(!peerDelegations.length){
+      var empty = document.createElement("p");
+      empty.className = "settings-hint";
+      empty.textContent = "This task was never delegated to another Agent.";
+      details.appendChild(empty);
+      return details;
+    }
+    peerDelegations.forEach(function(peer){
+      var card = document.createElement("div");
+      card.className = "subagent-run-card";
+      var header = document.createElement("div");
+      header.className = "subagent-run-header";
+      header.textContent = "Delegated to " + (peer.toAgentName || peer.toAgentId) + " — " + peer.status;
+      card.appendChild(header);
+      if(!peer.accessible){
+        var restricted = document.createElement("p");
+        restricted.className = "settings-hint";
+        restricted.textContent = "You don't have access to that Agent's board, so its conversation isn't shown here.";
+        card.appendChild(restricted);
+      } else if(!peer.messages.length){
+        var waiting = document.createElement("p");
+        waiting.className = "settings-hint";
+        waiting.textContent = "No activity yet on the delegated task.";
+        card.appendChild(waiting);
+      } else {
+        peer.messages.forEach(function(m){ card.appendChild(buildTaskDetailMessageEl(m)); });
+      }
+      details.appendChild(card);
+    });
+    return details;
+  }
+
+  function renderTaskDetailActivity(board, chat, activity){
+    var task = findTask(board, taskDetailTaskId);
+    if(task){
+      taskDetailTitle.textContent = task.text || "Task";
+      taskDetailSubtitle.textContent = task.status ? ("Status: " + task.status) : "";
+    }
+    var runnable = !!task && TASK_RUNNABLE_STATUSES[task.status] && board.myRole !== "viewer";
+    var stoppable = !!task && TASK_STOPPABLE_STATUSES[task.status] && board.myRole !== "viewer";
+    taskDetailRunBtn.hidden = !runnable;
+    taskDetailRunBtn.disabled = !runnable;
+    taskDetailStopBtn.hidden = !stoppable;
+    taskDetailStopBtn.disabled = !stoppable;
     taskDetailBody.innerHTML = "";
+    var messages = chat.messages || [];
+    taskDetailBody.appendChild(buildCountsSummary(activity.counts || {}));
     if(!messages.length){
       var empty = document.createElement("div");
       empty.className = "chat-empty";
-      empty.textContent = "No activity yet for this task.";
+      empty.textContent = "No activity yet for this task. Say something below to get started.";
       taskDetailBody.appendChild(empty);
-      return;
+    } else {
+      messages.forEach(function(m){ taskDetailBody.appendChild(buildOwnTaskMessageEl(board, chat, m)); });
     }
-    messages.forEach(function(m){ taskDetailBody.appendChild(buildTaskDetailMessageEl(m)); });
+    taskDetailBody.appendChild(buildSubAgentSection(activity.subAgentRuns || []));
+    taskDetailBody.appendChild(buildPeerAgentSection(activity.peerDelegations || []));
     taskDetailBody.scrollTop = taskDetailBody.scrollHeight;
   }
 
@@ -1439,14 +1866,80 @@
     taskDetailModal.hidden = true;
     taskDetailBoardId = null;
     taskDetailTaskId = null;
+    taskDetailChatId = null;
   }
 
   function refreshTaskDetailIfOpen(boardId, taskId){
     if(taskDetailBoardId !== boardId || taskDetailTaskId !== taskId) return;
-    apiGet("/boards/" + boardId + "/tasks/" + taskId + "/messages").then(function(data){
-      if(taskDetailBoardId !== boardId || taskDetailTaskId !== taskId) return;
-      renderTaskDetailMessages(data.messages || []);
-    }).catch(function(){});
+    loadTaskDetail(boardId, taskId);
+  }
+
+  async function sendTaskDetailMessage(){
+    var boardId = taskDetailBoardId;
+    var taskId = taskDetailTaskId;
+    var text = taskDetailTextarea.value.trim();
+    if(!text || taskDetailSending || !boardId || !taskId) return;
+
+    taskDetailSending = true;
+    taskDetailSendBtn.disabled = true;
+    try{
+      var resp = await apiPost("/boards/" + boardId + "/tasks/" + taskId + "/chat/messages", {text: text});
+      var board = boards.find(function(b){ return b.id === boardId; });
+      if(board && resp && resp.chats){
+        board.chats = resp.chats;
+        board.tasks = resp.tasks;
+        board.status = resp.status;
+      }
+      taskDetailTextarea.value = "";
+      autoSizeTaskDetailTextarea();
+      if(taskDetailBoardId === boardId && taskDetailTaskId === taskId) await loadTaskDetail(boardId, taskId);
+    }catch(e){
+      // Left in the textarea so the user can retry.
+    }finally{
+      taskDetailSending = false;
+      taskDetailSendBtn.disabled = false;
+    }
+  }
+
+  function autoSizeTaskDetailTextarea(){
+    taskDetailTextarea.style.height = "auto";
+    taskDetailTextarea.style.height = Math.min(taskDetailTextarea.scrollHeight, 160) + "px";
+  }
+
+  async function runSingleTask(){
+    var boardId = taskDetailBoardId;
+    var taskId = taskDetailTaskId;
+    if(!boardId || !taskId || taskDetailRunBtn.disabled) return;
+    taskDetailRunBtn.disabled = true;
+    try{
+      var resp = await apiPost("/boards/" + boardId + "/tasks/" + taskId + "/run");
+      var board = boards.find(function(b){ return b.id === boardId; });
+      if(board && resp && resp.tasks){
+        board.tasks = resp.tasks;
+        board.status = resp.status;
+      }
+      if(taskDetailBoardId === boardId && taskDetailTaskId === taskId) await loadTaskDetail(boardId, taskId);
+    }catch(e){
+      if(taskDetailBoardId === boardId && taskDetailTaskId === taskId) await loadTaskDetail(boardId, taskId);
+    }
+  }
+
+  async function stopSingleTask(){
+    var boardId = taskDetailBoardId;
+    var taskId = taskDetailTaskId;
+    if(!boardId || !taskId || taskDetailStopBtn.disabled) return;
+    taskDetailStopBtn.disabled = true;
+    try{
+      var resp = await apiPost("/boards/" + boardId + "/tasks/" + taskId + "/stop");
+      var board = boards.find(function(b){ return b.id === boardId; });
+      if(board && resp && resp.tasks){
+        board.tasks = resp.tasks;
+        board.status = resp.status;
+      }
+      if(taskDetailBoardId === boardId && taskDetailTaskId === taskId) await loadTaskDetail(boardId, taskId);
+    }catch(e){
+      if(taskDetailBoardId === boardId && taskDetailTaskId === taskId) await loadTaskDetail(boardId, taskId);
+    }
   }
 
   function wireTaskDetailModal(){
@@ -1457,10 +1950,32 @@
     document.addEventListener("keydown", function(e){
       if(e.key === "Escape" && !taskDetailModal.hidden) closeTaskDetailModal();
     });
+    taskDetailRunBtn.addEventListener("click", runSingleTask);
+    taskDetailStopBtn.addEventListener("click", stopSingleTask);
+    taskDetailForm.addEventListener("submit", function(e){
+      e.preventDefault();
+      sendTaskDetailMessage();
+    });
+    taskDetailTextarea.addEventListener("keydown", function(e){
+      if(e.key === "Enter" && !e.shiftKey){
+        e.preventDefault();
+        if(taskDetailForm.requestSubmit) taskDetailForm.requestSubmit();
+        else taskDetailForm.dispatchEvent(new Event("submit", {cancelable:true}));
+      }
+    });
+    taskDetailTextarea.addEventListener("input", autoSizeTaskDetailTextarea);
   }
 
-  function infoIcon(){
-    return '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="10" r="7.3"/><path d="M10 9.2v4M10 6.8h.01"/></svg>';
+  function pencilIcon(){
+    return '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M13.4 3.6a1.4 1.4 0 0 1 2 0l1 1a1.4 1.4 0 0 1 0 2L7 15.2l-3.2.8.8-3.2 8.8-9.2Z"/><path d="M12 5l3 3"/></svg>';
+  }
+
+  function runIcon(){
+    return '<svg viewBox="0 0 20 20" fill="currentColor" stroke="none"><path d="M6.5 4.3v11.4a1 1 0 0 0 1.53.85l8.9-5.7a1 1 0 0 0 0-1.7l-8.9-5.7a1 1 0 0 0-1.53.85Z"/></svg>';
+  }
+
+  function stopIcon(){
+    return '<svg viewBox="0 0 20 20" fill="currentColor" stroke="none"><rect x="5.5" y="5.5" width="9" height="9" rx="1.5"/></svg>';
   }
 
   // ---------------- boards ----------------
@@ -1742,7 +2257,7 @@
       try{ parsed = JSON.parse(String(reader.result)); }
       catch(e){ showImportMessage("That file isn&rsquo;t valid JSON."); return; }
       if(!parsed || !Array.isArray(parsed.boards) || !parsed.boards.length){
-        showImportMessage("That file doesn&rsquo;t look like a Scatterboard export.");
+        showImportMessage("That file doesn&rsquo;t look like a Manifestation Board export.");
         return;
       }
 
@@ -1786,6 +2301,10 @@
     boards.forEach(function(b){ b.tasks = b.tasks || []; });
     zCounter = boards.reduce(function(m, b){ return Math.max(m, b.z || 0); }, 10);
     renderAll();
+    // Labels are cached after their first fetch — this re-render only
+    // actually happens the very first time (or after a hard reload).
+    var hadLabels = !!labelsCache;
+    ensureLabelsLoaded().then(function(){ if(!hadLabels) renderAll(); });
   }
 
   async function init(){

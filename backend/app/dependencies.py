@@ -54,6 +54,11 @@ async def get_board_role(board_id: str, user_id: str) -> Tuple[Optional[str], Op
     share = await board_shares_collection.find_one({"boardId": board_id, "userId": user_id})
     if share:
         return share["role"], board
+    # An inbound-delegation board (Phase 6) has no owner or per-user shares —
+    # it belongs to the Agent itself, so any of that Agent's members can
+    # work the tasks other Agents delegated there.
+    if board.get("inboundDelegation") and await get_agent_membership(board["agentId"], user_id):
+        return "editor", board
     return None, board
 
 

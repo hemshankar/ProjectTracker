@@ -2,7 +2,7 @@ from typing import Any, Iterable, Optional
 
 from pymongo import ReturnDocument
 
-from .database import boards_collection
+from .database import boards_collection, task_runs_collection
 from .execution.context import finish_task_run
 from .models import now_ms
 
@@ -14,6 +14,8 @@ TASK_STATUSES = (
     "running",
     "awaiting_reply",
     "awaiting_approval",
+    "awaiting_clarification",
+    "manual",
     "stopped",
     "failed",
     "blocked",
@@ -24,6 +26,7 @@ BOARD_STATUSES = (
     "idle",
     "queued",
     "running",
+    "manual",
     "stopped",
     "failed",
     "blocked",
@@ -104,7 +107,7 @@ async def migrate_legacy_board_statuses() -> int:
 
 
 _ZOMBIE_TASK_STATUSES = ("running", "queued")
-_HUMAN_WAIT_STATUSES = ("awaiting_approval", "awaiting_reply")
+_HUMAN_WAIT_STATUSES = ("awaiting_approval", "awaiting_reply", "awaiting_clarification", "manual")
 
 
 async def reconcile_interrupted_runs() -> int:
@@ -119,13 +122,18 @@ async def reconcile_interrupted_runs() -> int:
     Any task actually mid-step (`running`) or parked on a rate limit/lock
     wait (`queued`) belongs to a coroutine that's gone, so it's reset to
     `failed` here, closing its dangling `task_runs` record the same way
-    `finish_task_run` normally would. A task merely `awaiting_approval` or
-    `awaiting_reply` is untouched — that's a human-driven resume with no
-    backing coroutine, so it's still resolvable after the restart.
+    `finish_task_run` normally would. A task merely `awaiting_approval`,
+    `awaiting_reply`, `awaiting_clarification`, or `manual` is untouched —
+    that's a human-driven resume with no backing coroutine, so it's still
+    resolvable after the restart.
 
     A board is then failed (restartable) unless the only thing left
     pending on it is one of those human-wait tasks, in which case it's
     legitimately still mid-run and left alone.
+
+    A second pass below covers a task run standalone (outside any board's
+    own `run()` loop) rather than as part of a whole-board run — the board's
+    own `status` never changes for that, so the scan above never reaches it.
     """
     reconciled = 0
     async for board in boards_collection.find({"status": {"$in": ["queued", "running"]}}):
@@ -160,7 +168,55 @@ async def reconcile_interrupted_runs() -> int:
         )
         if failed is not None:
             reconciled += 1
+
+    # A task can also be run standalone (see `AgentRunner.run_task_by_id`
+    # called directly, outside `run()`'s own loop) without ever putting the
+    # board itself into "queued"/"running" — the scan above never reaches
+    # such a board, so a task left `running`/`queued` there by a process
+    # that died mid-task would otherwise sit stuck forever. Same zombie-task
+    # reset as above, just without any board-status transition (the board's
+    # own status was never touched to begin with).
+    async for board in boards_collection.find({
+        "status": {"$nin": ["queued", "running"]},
+        "tasks.status": {"$in": list(_ZOMBIE_TASK_STATUSES)},
+    }):
+        board_id = board["_id"]
+        for task in board.get("tasks", []):
+            if task.get("status") not in _ZOMBIE_TASK_STATUSES:
+                continue
+            run_id = task.get("currentRunId")
+            reset = await transition_task_status(
+                board_id,
+                task["id"],
+                _ZOMBIE_TASK_STATUSES,
+                "failed",
+                statusReason=INTERRUPTED_REASON,
+                currentRunId=None,
+            )
+            if reset is not None:
+                reconciled += 1
+                if run_id:
+                    await finish_task_run(run_id, "failed", INTERRUPTED_REASON)
     return reconciled
+
+
+async def reconcile_orphaned_task_runs() -> int:
+    """Sweeps any `task_runs` doc left `status: "running"` by a process that
+    died mid-task. Complements `reconcile_interrupted_runs`, which only
+    reaches a task's *primary* run (via `boards.tasks[].currentRunId`) — a
+    sub-agent run (`kind: "subagent"`, linked by `parentRunId` instead) is
+    invisible to that scan and would otherwise sit at `status: "running"`,
+    `endedAt: null` forever, since nothing else ever revisits it either.
+    Safe to run unconditionally on every startup: `task_runs` are only ever
+    written by a coroutine driven by `RunnerRegistry`, which is wiped on
+    every restart, so anything still "running" at startup is orphaned by
+    definition.
+    """
+    result = await task_runs_collection.update_many(
+        {"status": "running"},
+        {"$set": {"status": "failed", "endedAt": now_ms(), "error": INTERRUPTED_REASON}},
+    )
+    return result.modified_count
 
 
 async def migrate_legacy_task_statuses() -> int:

@@ -1,4 +1,4 @@
-# Scatterboard
+# Manifestation Board
 
 A drag-and-drop project board app: freeform, resizable boards with tasks and
 per-board AI chat. Frontend is Node.js/Express, backend is Python/FastAPI,
@@ -31,5 +31,5 @@ require `docker compose up --build`.
 
 ```
 backend/    FastAPI app, MongoDB access, PDF export, Anthropic chat calls
-frontend/   Express static server + /api proxy, the Scatterboard UI (public/)
+frontend/   Express static server + /api proxy, the Manifestation Board UI (public/)
 ```

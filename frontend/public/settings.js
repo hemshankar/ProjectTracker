@@ -25,6 +25,19 @@
   var webSearchInput = document.getElementById("settings-web-search-enabled");
   var modelLimits = {};
 
+  var maxConcurrentTasksInput = document.getElementById("settings-max-concurrent-tasks");
+  var maxToolRoundsInput = document.getElementById("settings-max-tool-rounds");
+  var maxToolRoundsCeiling = 100;
+
+  var agentIdentityForm = document.getElementById("agent-identity-form");
+  var agentNameInput = document.getElementById("settings-agent-name");
+  var agentDescriptionInput = document.getElementById("settings-agent-description");
+  var agentSavedMsg = document.getElementById("settings-agent-saved-msg");
+
+  var linksList = document.getElementById("settings-links-list");
+  var linksForm = document.getElementById("settings-links-form");
+  var linksTargetSelect = document.getElementById("settings-links-target-select");
+
   function renderModelOptions(limits){
     modelLimits = limits || {};
     modelSelect.innerHTML = "";
@@ -167,20 +180,112 @@
     applyMaxTokensCeiling();
     maxTokensInput.value = modelConfig.maxTokens || maxTokensInput.value;
     webSearchInput.checked = !!modelConfig.webSearchEnabled;
+
+    var maxConcurrent = settings.concurrency && settings.concurrency.maxConcurrentTasks;
+    maxConcurrentTasksInput.value = (maxConcurrent === null || maxConcurrent === undefined) ? "" : maxConcurrent;
+
+    maxToolRoundsCeiling = settings.maxToolRoundsCeiling || maxToolRoundsCeiling;
+    maxToolRoundsInput.max = maxToolRoundsCeiling;
+    maxToolRoundsInput.value = (settings.execution && settings.execution.maxToolRounds) || maxToolRoundsInput.value;
   }
+
+  function renderLinksTargetOptions(){
+    var agentId = window.Identity.getCurrentAgentId();
+    var others = (window.Identity.getAgents() || []).filter(function(a){ return a.id !== agentId; });
+    linksTargetSelect.innerHTML = "";
+    others.forEach(function(a){
+      var opt = document.createElement("option");
+      opt.value = a.id;
+      opt.textContent = a.name + (a.description ? " — " + a.description : " (no description set)");
+      opt.title = a.description || "";
+      linksTargetSelect.appendChild(opt);
+    });
+    linksForm.hidden = !others.length;
+  }
+
+  function renderLinks(links){
+    linksList.innerHTML = "";
+    if(!links.length){
+      var empty = document.createElement("p");
+      empty.className = "settings-hint";
+      empty.textContent = "This Agent doesn't delegate to any other Agent yet.";
+      linksList.appendChild(empty);
+      return;
+    }
+    links.forEach(function(link){
+      var row = document.createElement("div");
+      row.className = "settings-link-row";
+      var label = document.createElement("span");
+      label.textContent = "Delegates to " + (link.toAgentName || link.toAgentId) +
+        (link.toAgentDescription ? " — " + link.toAgentDescription : "");
+      row.appendChild(label);
+      var revokeBtn = document.createElement("button");
+      revokeBtn.type = "button";
+      revokeBtn.className = "btn";
+      revokeBtn.textContent = "Revoke";
+      revokeBtn.addEventListener("click", async function(){
+        var agentId = window.Identity.getCurrentAgentId();
+        try{
+          await window.Identity.apiSend("DELETE", "/agents/" + agentId + "/links/" + link.toAgentId);
+          await open();
+        }catch(e){}
+      });
+      row.appendChild(revokeBtn);
+      linksList.appendChild(row);
+    });
+  }
+
+  linksForm.addEventListener("submit", async function(e){
+    e.preventDefault();
+    var agentId = window.Identity.getCurrentAgentId();
+    var toAgentId = linksTargetSelect.value;
+    if(!agentId || !toAgentId) return;
+    try{
+      await window.Identity.apiSend("POST", "/agents/" + agentId + "/links", {toAgentId: toAgentId});
+      await open();
+    }catch(err){}
+  });
+
+  function fillAgentIdentity(){
+    var agentId = window.Identity.getCurrentAgentId();
+    var agent = (window.Identity.getAgents() || []).find(function(a){ return a.id === agentId; });
+    agentNameInput.value = agent ? agent.name || "" : "";
+    agentDescriptionInput.value = agent ? agent.description || "" : "";
+  }
+
+  agentIdentityForm.addEventListener("submit", async function(e){
+    e.preventDefault();
+    var agentId = window.Identity.getCurrentAgentId();
+    if(!agentId) return;
+    agentSavedMsg.hidden = true;
+    try{
+      var updated = await window.Identity.apiSend("PATCH", "/agents/" + agentId, {
+        name: agentNameInput.value.trim(),
+        description: agentDescriptionInput.value.trim()
+      });
+      window.Identity.updateAgentLocal(updated);
+      fillAgentIdentity();
+      agentSavedMsg.hidden = false;
+    }catch(err){}
+  });
 
   async function open(){
     var agentId = window.Identity.getCurrentAgentId();
     if(!agentId) return;
     modal.hidden = false;
     savedMsg.hidden = true;
+    agentSavedMsg.hidden = true;
+    fillAgentIdentity();
     try{
       var settings = await window.Identity.apiGet("/agents/" + agentId + "/settings");
       var connections = await window.Identity.apiGet("/agents/" + agentId + "/tools");
       var boards = await window.Identity.apiGet("/agents/" + agentId + "/boards");
+      var links = await window.Identity.apiGet("/agents/" + agentId + "/links");
       fillForm(settings);
       renderToolRows(settings, connections);
       renderBoardBudgetRows(boards);
+      renderLinksTargetOptions();
+      renderLinks(links);
     }catch(e){
       close();
     }
@@ -208,6 +313,7 @@
     var ceiling = modelLimits[modelSelect.value];
     var maxTokens = parseInt(maxTokensInput.value, 10) || 1;
     if(ceiling) maxTokens = Math.min(Math.max(maxTokens, 1), ceiling);
+    var maxToolRounds = Math.min(Math.max(parseInt(maxToolRoundsInput.value, 10) || 1, 1), maxToolRoundsCeiling);
     var payload = {
       tools: tools,
       rateLimits: rateLimits,
@@ -219,6 +325,12 @@
         model: modelSelect.value,
         maxTokens: maxTokens,
         webSearchEnabled: webSearchInput.checked
+      },
+      concurrency: {
+        maxConcurrentTasks: maxConcurrentTasksInput.value === "" ? null : parseInt(maxConcurrentTasksInput.value, 10)
+      },
+      execution: {
+        maxToolRounds: maxToolRounds
       }
     };
     savedMsg.hidden = true;

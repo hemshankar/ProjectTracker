@@ -58,6 +58,18 @@ RATE_LIMIT_WINDOW_MS = 24 * 60 * 60 * 1000
 RATE_LIMIT_POLL_SECONDS = 2
 LOCK_POLL_SECONDS = 2
 
+# How often a board's SSE stream checks for a gone-away client between real
+# events — the only thing that lets an abandoned connection actually close.
+SSE_POLL_SECONDS = 15
+
+# A task's own tool-call round budget. Each round is one model turn, and
+# each `delegate_subtask`/`delegate_to_agent` dispatch consumes one round
+# just like any other tool call — decomposing into N sub-agents needs N+1
+# rounds minimum (the dispatches, plus one more to write the final answer),
+# so this needs real headroom now that Phase 6 adds multi-step orchestration
+# on top of whatever else a task's own tool use already needed.
+TASK_MAX_TOOL_ROUNDS = int(os.environ.get("TASK_MAX_TOOL_ROUNDS", "12"))
+
 HUES = ["blue", "sage", "clay", "mauve", "ochre", "slate"]
 
 CANVAS_W = 2600

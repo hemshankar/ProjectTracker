@@ -11,6 +11,12 @@ BOARD_ROLE_RANK = {"viewer": 0, "editor": 1}
 
 class AgentCreate(BaseModel):
     name: str
+    description: Optional[str] = ""
+
+
+class AgentUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
 
 
 class MemberInvite(BaseModel):
@@ -28,6 +34,15 @@ class ShareCreate(BaseModel):
     role: BoardRole = "viewer"
 
 
+class AgentLinkCreate(BaseModel):
+    toAgentId: str
+
+
+class LabelCreate(BaseModel):
+    name: str
+    color: str
+
+
 def user_to_json(doc: dict) -> dict:
     return {
         "id": doc["_id"],
@@ -41,6 +56,7 @@ def agent_to_json(doc: dict, my_role: Optional[str] = None) -> dict:
     out = {
         "id": doc["_id"],
         "name": doc.get("name"),
+        "description": doc.get("description") or "",
         "createdBy": doc.get("createdBy"),
         "createdAt": doc.get("createdAt"),
         "updatedAt": doc.get("updatedAt"),
@@ -69,5 +85,27 @@ def share_to_json(doc: dict) -> dict:
         "userId": doc.get("userId"),
         "role": doc.get("role"),
         "invitedBy": doc.get("invitedBy"),
+        "createdAt": doc.get("createdAt"),
+    }
+
+
+def label_to_json(doc: dict) -> dict:
+    return {
+        "id": doc["_id"],
+        "name": doc.get("name"),
+        "color": doc.get("color"),
+        "createdBy": doc.get("createdBy"),
+        "createdAt": doc.get("createdAt"),
+    }
+
+
+def agent_link_to_json(doc: dict, to_agent: Optional[dict] = None) -> dict:
+    return {
+        "id": doc["_id"],
+        "fromAgentId": doc.get("fromAgentId"),
+        "toAgentId": doc.get("toAgentId"),
+        "toAgentName": (to_agent or {}).get("name"),
+        "toAgentDescription": (to_agent or {}).get("description") or "",
+        "grantedBy": doc.get("grantedBy"),
         "createdAt": doc.get("createdAt"),
     }

@@ -25,6 +25,7 @@
   var createModal = document.getElementById("agent-create-modal");
   var createForm = document.getElementById("agent-create-form");
   var createInput = document.getElementById("agent-create-input");
+  var createDescriptionInput = document.getElementById("agent-create-description");
 
   async function apiGet(path){
     var r = await fetch(API + path, {credentials: "same-origin"});
@@ -85,6 +86,7 @@
     closeSwitcherPop();
     createModal.hidden = false;
     createInput.value = "";
+    createDescriptionInput.value = "";
     createInput.focus();
   }
   function closeCreateModal(){ createModal.hidden = true; }
@@ -158,7 +160,7 @@
     var name = createInput.value.trim();
     if(!name) return;
     try{
-      var agent = await apiSend("POST", "/agents", {name: name});
+      var agent = await apiSend("POST", "/agents", {name: name, description: createDescriptionInput.value.trim()});
       agents.push(agent);
       closeCreateModal();
       setCurrentAgent(agent.id);
@@ -218,6 +220,15 @@
       return agent ? agent.myRole : null;
     },
     getUser: function(){ return currentUser; },
+    getAgents: function(){ return agents.slice(); },
+    updateAgentLocal: function(updated){
+      var existing = agents.find(function(a){ return a.id === updated.id; });
+      if(existing){
+        existing.name = updated.name;
+        existing.description = updated.description;
+      }
+      if(updated.id === currentAgentId) renderSwitcherLabel();
+    },
     onAgentChange: function(cb){ agentChangeListeners.push(cb); },
     apiGet: apiGet,
     apiSend: apiSend

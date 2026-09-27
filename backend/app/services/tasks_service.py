@@ -2,6 +2,7 @@ from fastapi import HTTPException
 
 from .. import task_state
 from ..database import boards_collection
+from ..execution import concurrency
 from ..execution.events import events
 from ..models import TaskUpdate, now_ms, sanitize_task, task_to_json
 from . import audit_service
@@ -11,6 +12,11 @@ from . import audit_service
 # its status — and the "done" glow the frontend renders from it — needs to
 # catch up immediately rather than waiting for the next full run to cycle it.
 _TERMINAL_BOARD_STATUSES = ("done", "failed", "stopped", "blocked")
+
+# The statuses a task can be manually (re)started from — mirrors
+# `routers/boards.py`'s `BOARD_STARTABLE_STATUSES` minus "done" (re-running a
+# completed task isn't what this action is for; un-check it first).
+TASK_RUNNABLE_STATUSES = ("idle", "failed", "stopped", "blocked")
 
 
 async def _get_board(board_id: str) -> dict:
@@ -114,6 +120,45 @@ async def delete_task(board_id: str, task_id: str, actor_id: str) -> None:
         before=before,
         after=None,
     )
+
+
+async def prepare_task_for_run(board_id: str, task_id: str, actor_id: str) -> dict:
+    """Validates and resets one task to `idle` for a standalone run (see
+    `routers/boards.py`'s `POST /tasks/{id}/run`) — independent of the
+    board's own Start/Stop. The caller kicks off the actual execution once
+    this returns cleanly; raises HTTPException (409) if the task isn't in a
+    runnable status or the Agent is at its concurrency cap.
+    """
+    board = await _get_board(board_id)
+    task = _find_task(board, task_id)
+
+    if task.get("status") not in TASK_RUNNABLE_STATUSES:
+        raise HTTPException(
+            status_code=409, detail=f"Task can't be run from status '{task.get('status')}'"
+        )
+
+    agent_id = board.get("agentId")
+    if agent_id is not None and not await concurrency.has_capacity(agent_id):
+        raise HTTPException(status_code=409, detail="Agent is at its concurrency limit")
+
+    reset = await task_state.transition_task_status(
+        board_id, task_id, TASK_RUNNABLE_STATUSES, "idle", statusReason=None, currentRunId=None,
+    )
+    if reset is None:
+        raise HTTPException(status_code=409, detail="Task changed status before it could be run")
+    await events.publish(board_id, {"taskId": task_id, "status": "idle"})
+    await audit_service.write_audit(
+        agent_id=agent_id,
+        board_id=board_id,
+        task_id=task_id,
+        entity_type="task",
+        action="update",
+        actor_type="human",
+        actor_id=actor_id,
+        before=task,
+        after=_find_task(reset, task_id),
+    )
+    return reset
 
 
 async def clear_completed_tasks(board_id: str, actor_id: str) -> None:

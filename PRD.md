@@ -1,4 +1,4 @@
-# Scatterboard Agent PRD
+# Manifestation Board Agent PRD
 
 *2026-09-26 · Hemshankar Sahu*
 
@@ -6,7 +6,7 @@ Source (live, editable): https://claude.ai/code/artifact/dcac2c61-f5c4-4638-96ac
 
 ## Overview & Goals
 
-Scatterboard boards today have tasks and an advisory-only chat — the assistant can talk about a board's tasks but can't act on them. This adds an agent that can actually work on tasks: doing read-only work itself, and taking real actions (send an email, book a calendar event) once a human approves.
+Manifestation Board boards today have tasks and an advisory-only chat — the assistant can talk about a board's tasks but can't act on them. This adds an agent that can actually work on tasks: doing read-only work itself, and taking real actions (send an email, book a calendar event) once a human approves.
 
 Goals:
 - Let an agent pick up open tasks and make progress on them, automatically or on demand.
@@ -17,7 +17,7 @@ Goals:
 ## Identity & Multi-Tenancy
 
 - Users sign in with Google SSO. A user's identity doesn't own boards directly — boards belong to Agents.
-- An **Agent** (e.g. "Marketing Agent") is the top-level entity: it owns exactly one Scatterboard — all of its boards, tasks, chat, and audit log — plus its own tool connections and budget. A user only sees the Agents they've been invited to.
+- An **Agent** (e.g. "Marketing Agent") is the top-level entity: it owns exactly one Manifestation Board — all of its boards, tasks, chat, and audit log — plus its own tool connections and budget. A user only sees the Agents they've been invited to.
 - **Agent Admin** — manages an Agent's tool connections, budget, and invites. Separate from ordinary board access, so a board collaborator can't rewire what account the Agent sends from.
 - **Board sharing** — a board's owner or editor can invite other users to it as viewer or editor. Board access automatically grants the ability to interact with that board's Agent — no separate Agent-level invite needed for ordinary use.
 
@@ -59,7 +59,7 @@ Each run is its own record (status, timestamps, which agent/sub-agent ran it, er
 
 **Read-only vs. mutating work.**
 - Read-only work (checking a calendar, searching email, drafting text): the agent does this itself, no approval needed.
-- Mutating actions (sending an email, creating/editing/deleting a calendar event, or anything that changes something outside Scatterboard): the agent prepares the action and posts it to the board's chat as a pending approval request. It does not execute until the user approves.
+- Mutating actions (sending an email, creating/editing/deleting a calendar event, or anything that changes something outside Manifestation Board): the agent prepares the action and posts it to the board's chat as a pending approval request. It does not execute until the user approves.
 - Chat becomes interactive: alongside normal text, it can hold "action request" cards — what the agent wants to do, plus Approve/Reject. Approve runs it; Reject moves the task to blocked, and the agent can revise and re-propose.
 
 **Chat during a run.** The agent watches the chat throughout a run, not only when it's explicitly waiting on a reply — a human can add guidance at any point, and the agent picks it up on its next step.
@@ -69,7 +69,7 @@ Each run is its own record (status, timestamps, which agent/sub-agent ran it, er
 - For a given task, the owning Agent can spin up one or more scoped **sub-agents** — ephemeral workers with no identity or budget of their own, just a slice of the owning Agent's tools — to decompose the work. This is the owning Agent's call, whenever a task needs it.
 - If a task needs a specialization the owning Agent doesn't have, it can instead delegate to a different top-level Agent it has access to (e.g. Marketing Agent asking Support Agent) — its own decision, never a manual per-task assignment by a human.
 - The owning Agent decides whether sub-agents, delegated Agents, or its own tasks run in parallel or sequentially, based on dependencies and whether they touch the same resource.
-- "One Agent per Scatterboard" is an identity/ownership boundary, not a single worker: tasks across different boards owned by the same Agent can run fully in parallel — the resource-level locks (see Concurrency & Reliability) are what keep that safe, not board boundaries.
+- "One Agent per Manifestation Board" is an identity/ownership boundary, not a single worker: tasks across different boards owned by the same Agent can run fully in parallel — the resource-level locks (see Concurrency & Reliability) are what keep that safe, not board boundaries.
 - Sub-agents and delegated Agents draw from the same enforced budgets (board/Agent/global) and can only use tools that Agent has connected and enabled.
 
 ## Concurrency & Reliability
@@ -113,7 +113,7 @@ Processing/Done reflect the board's overall run state; Needs reply/Needs approva
 
 | Phase | Scope | Why this order |
 | --- | --- | --- |
-| 1. Identity, Agents & sharing | Google SSO login; Agent as the top-level entity (owns one Scatterboard, its own tool connections and budget); Agent Admin role; board-level view/edit sharing | Everything after this is scoped to an Agent, so it comes first |
+| 1. Identity, Agents & sharing | Google SSO login; Agent as the top-level entity (owns one Manifestation Board, its own tool connections and budget); Agent Admin role; board-level view/edit sharing | Everything after this is scoped to an Agent, so it comes first |
 | 2. Foundations | Task state machine + atomic status transitions, append-only audit log, Settings page skeleton | The backbone every later phase reads and writes through |
 | 3. Manual start/stop | Start ("Manifest") and graceful Stop per board; processing/done glow; single agent, read-only work only, sequential | Lowest-risk agent behavior, explicit trigger, no external side effects yet |
 | 4. Approval workflow | Chat action-request cards, approve/reject; mutating actions gated behind approval | Unlocks real actions safely, on top of Phase 2's state machine |

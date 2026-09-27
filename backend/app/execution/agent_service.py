@@ -4,35 +4,33 @@ Builds on `chat_service`'s Anthropic client, but — unlike the human-facing
 chat, which just streams plain text — this declares tools and knows how to
 suspend a task at a mutating tool call until a human approves or rejects it
 (Phase 4's approval workflow), then resume the same conversation from
-exactly that point.
+exactly that point. Phase 6 adds two more ways a task can suspend: a
+sub-agent it spun up (`delegate_subtask`) proposing a mutating action, and a
+peer Agent it handed work to (`delegate_to_agent`) not having replied yet.
+`mark_manual` is a further one: the agent has already done everything it
+can and the rest depends on someone outside this system entirely, so the
+task waits on a human to say what that person did, rather than on any
+in-system reply.
 """
-from typing import Any, List, Optional, Tuple
+from typing import Any, List, Tuple
 
+from .. import config
 from ..chat_service import get_client
-from ..database import boards_collection
+from ..database import agents_collection, boards_collection
 from ..models import new_id
 from ..models_settings import default_model_config
 from ..services import budget_service, settings_service
 from ..services.chats_service import text_message
-from . import tools
-from .conversation import build_task_system_prompt, to_anthropic_messages
+from . import subagent, tools
+from .conversation import assistant_turn, build_task_system_prompt, split_response, to_anthropic_messages, tool_result_turn
 from .enforcement import check_budget
 
-MAX_TOOL_ROUNDS = 4
+DEFAULT_MAX_TOOL_ROUNDS = config.TASK_MAX_TOOL_ROUNDS
 
 
-def _split_response(response: Any) -> Tuple[str, Optional[Any]]:
-    text_parts: List[str] = []
-    tool_use = None
-    for block in response.content:
-        if block.type == "text":
-            text_parts.append(block.text)
-        elif block.type == "tool_use" and tool_use is None:
-            tool_use = block
-    return "\n".join(p for p in text_parts if p), tool_use
-
-
-def _action_request_message(task_id: str, spec: tools.ToolSpec, tool_use: Any, lead_text: str) -> dict:
+def _action_request_message(
+    task_id: str, description: str, tool_name: str, params: dict, tool_use_id: str, lead_text: str
+) -> dict:
     return {
         "id": new_id(),
         "role": "assistant",
@@ -40,34 +38,82 @@ def _action_request_message(task_id: str, spec: tools.ToolSpec, tool_use: Any, l
         "text": lead_text,
         "payload": {
             "taskId": task_id,
-            "description": tools.describe_action(spec, tool_use.input),
-            "tool": tool_use.name,
-            "params": tool_use.input,
-            "toolUseId": tool_use.id,
+            "description": description,
+            "tool": tool_name,
+            "params": params,
+            "toolUseId": tool_use_id,
             "status": "pending",
         },
     }
 
 
-async def _ingest_live_input(board_id: str, chat: dict, anthropic_messages: List[dict]) -> None:
+def _clarification_request_message(task_id: str, question: str, tool_use_id: str, lead_text: str) -> dict:
+    return {
+        "id": new_id(),
+        "role": "assistant",
+        "type": "clarification_request",
+        "text": lead_text,
+        "payload": {
+            "taskId": task_id,
+            "question": question,
+            "toolUseId": tool_use_id,
+            "status": "pending",
+        },
+    }
+
+
+def _manual_hold_message(task_id: str, note: str, tool_use_id: str, lead_text: str) -> dict:
+    return {
+        "id": new_id(),
+        "role": "assistant",
+        "type": "manual_hold",
+        "text": lead_text,
+        "payload": {
+            "taskId": task_id,
+            "note": note,
+            "toolUseId": tool_use_id,
+            "status": "pending",
+        },
+    }
+
+
+def _delegation_request_message(task_id: str, target_agent_id: str, target_agent_name: str, request: str, lead_text: str) -> dict:
+    return {
+        "id": new_id(),
+        "role": "assistant",
+        "type": "delegation_request",
+        "text": lead_text,
+        "payload": {
+            "taskId": task_id,
+            "targetAgentId": target_agent_id,
+            "targetAgentName": target_agent_name,
+            "request": request,
+            "status": "pending",
+        },
+    }
+
+
+async def _ingest_live_input(board_id: str, chat_id: str, seen_ids: set, anthropic_messages: List[dict]) -> None:
     """Picks up any human chat message sent mid-run through the normal chat
     endpoint, so the next model call actually sees it — not just whatever
-    was there when this task started.
+    was there when this task started. Only feeds `anthropic_messages` (the
+    model-facing view); `chat["messages"]` is left untouched so the caller
+    can tell exactly which messages this run newly authored (see
+    `execution.loop`).
     """
     fresh = await boards_collection.find_one({"_id": board_id}, {"chats": 1})
     if not fresh:
         return
-    fresh_chat = next((c for c in fresh.get("chats", []) if c["id"] == chat["id"]), None)
+    fresh_chat = next((c for c in fresh.get("chats", []) if c["id"] == chat_id), None)
     if not fresh_chat:
         return
-    known_ids = {m.get("id") for m in chat["messages"]}
     new_msgs = [
         m for m in fresh_chat["messages"]
-        if m.get("id") and m.get("id") not in known_ids and m.get("role") == "user"
+        if m.get("id") and m.get("id") not in seen_ids and m.get("role") == "user"
     ]
     if not new_msgs:
         return
-    chat["messages"].extend(new_msgs)
+    seen_ids.update(m["id"] for m in new_msgs)
     combined = "\n".join(m.get("text", "") for m in new_msgs if m.get("text"))
     if not combined:
         return
@@ -83,16 +129,50 @@ async def _ingest_live_input(board_id: str, chat: dict, anthropic_messages: List
         anthropic_messages.append({"role": "user", "content": combined})
 
 
+async def _handle_delegate_to_agent(board: dict, task: dict, chat: dict, tool_use: Any, lead_text: str) -> Tuple[str, str]:
+    """Returns `("suspended", "")` when the delegation was accepted (the
+    caller should return `awaiting_reply` immediately), or `("refused",
+    detail)` when there's no granted link — fed back to the model as an
+    error tool_result so it can tell the user, rather than retrying blindly.
+    """
+    from . import delegation  # local import: delegation imports this module
+
+    from_agent_id = board.get("agentId")
+    target_agent_id = tool_use.input.get("targetAgentId", "")
+    request_text = tool_use.input.get("request", "")
+
+    from_agent = await agents_collection.find_one({"_id": from_agent_id}) if from_agent_id else None
+    target_agent = await agents_collection.find_one({"_id": target_agent_id})
+    from_agent_name = (from_agent or {}).get("name") or "another Agent"
+    target_agent_name = (target_agent or {}).get("name") or target_agent_id
+
+    try:
+        await delegation.request_delegation(
+            from_agent_id, from_agent_name, target_agent_id,
+            board["_id"], task["id"], task.get("currentRunId"), request_text,
+        )
+    except delegation.DelegationRefused as exc:
+        return "refused", str(exc)
+
+    chat["messages"].append(
+        _delegation_request_message(task["id"], target_agent_id, target_agent_name, request_text, lead_text)
+    )
+    return "suspended", ""
+
+
 async def run_task_step(
     board_id: str, board: dict, task: dict, chat: dict, fallback_status: str = "done"
 ) -> str:
-    """Advances `task`'s conversation until it finishes or proposes a new
-    mutating action. Appends any new assistant/action-request entries to
-    `chat["messages"]` in place; the caller persists and audits them.
+    """Advances `task`'s conversation until it finishes or suspends — on a
+    proposed mutating action (this task's own, or a sub-agent's), or on a
+    peer-Agent delegation awaiting reply. Appends any new assistant/
+    action-request/delegation-request entries to `chat["messages"]` in
+    place; the caller persists and audits them.
 
-    Safe to call both to start a task and to resume it after an
-    approve/reject decision has just been recorded on the last
-    `action_request` message — either way the model only ever sees a fully
+    Safe to call to start a task, to resume it after an approve/reject
+    decision on the last `action_request`, or to resume it after a
+    delegated task's reply — every case rebuilds the model-facing history
+    fresh from `chat["messages"]`, so the model only ever sees a fully
     resolved history, never a dangling tool call.
     """
     client = get_client()
@@ -102,7 +182,10 @@ async def run_task_step(
         )
         return fallback_status
 
-    system_prompt = build_task_system_prompt(board, task)
+    # Each task has its own dedicated chat (`chats_service.get_or_create_task_chat`),
+    # so an empty history really does mean this is the task's first turn ever —
+    # not just the first turn of this particular call.
+    system_prompt = await build_task_system_prompt(board, task, is_first_turn=not chat["messages"])
     anthropic_messages = to_anthropic_messages(chat["messages"])
     # The Anthropic API requires the conversation to end on a user turn. An
     # empty history (first task ever) and a shared board chat that already
@@ -113,12 +196,13 @@ async def run_task_step(
 
     agent_id = board.get("agentId")
     run_id = task.get("currentRunId")
-    model_config = (
-        (await settings_service.get_settings(agent_id))["modelConfig"] if agent_id else default_model_config()
-    )
+    agent_settings = await settings_service.get_settings(agent_id) if agent_id else None
+    model_config = agent_settings["modelConfig"] if agent_settings else default_model_config()
+    max_tool_rounds = agent_settings["execution"]["maxToolRounds"] if agent_settings else DEFAULT_MAX_TOOL_ROUNDS
+    seen_ids = {m.get("id") for m in chat["messages"]}
 
-    for _ in range(MAX_TOOL_ROUNDS):
-        await _ingest_live_input(board_id, chat, anthropic_messages)
+    for _ in range(max_tool_rounds):
+        await _ingest_live_input(board_id, chat["id"], seen_ids, anthropic_messages)
         await check_budget(agent_id, board_id)
         # Streamed rather than a plain `create()` call: a maxTokens this large
         # is enough to risk an HTTP timeout on a buffered response.
@@ -134,7 +218,7 @@ async def run_task_step(
         if usage is not None:
             usd = budget_service.usd_for_usage(usage.input_tokens, usage.output_tokens)
             await budget_service.record_spend(agent_id, board_id, task["id"], run_id, usd)
-        text, tool_use = _split_response(response)
+        text, tool_use = split_response(response)
 
         if tool_use is None:
             chat["messages"].append(
@@ -142,26 +226,56 @@ async def run_task_step(
             )
             return fallback_status
 
+        if tool_use.name == "ask_user":
+            question = tool_use.input.get("question", "")
+            chat["messages"].append(
+                _clarification_request_message(task["id"], question, tool_use.id, text)
+            )
+            return "awaiting_clarification"
+
+        if tool_use.name == "mark_manual":
+            note = tool_use.input.get("note", "")
+            chat["messages"].append(
+                _manual_hold_message(task["id"], note, tool_use.id, text)
+            )
+            return "manual"
+
+        if tool_use.name == "delegate_to_agent":
+            outcome, detail = await _handle_delegate_to_agent(board, task, chat, tool_use, text)
+            if outcome == "suspended":
+                return "awaiting_reply"
+            anthropic_messages.append(assistant_turn(response, tool_use))
+            anthropic_messages.append(tool_result_turn(tool_use.id, detail, is_error=True))
+            continue
+
+        if tool_use.name == "delegate_subtask":
+            result_text, pending_action = await subagent.run_subtask(
+                board, task, run_id, model_config,
+                tool_use.input.get("instructions", ""), tool_use.input.get("allowedTools"),
+            )
+            if pending_action is not None:
+                chat["messages"].append(_action_request_message(
+                    task["id"], pending_action["description"], pending_action["tool"],
+                    pending_action["params"], pending_action["toolUseId"], text,
+                ))
+                return "awaiting_approval"
+            anthropic_messages.append(assistant_turn(response, tool_use))
+            anthropic_messages.append(tool_result_turn(tool_use.id, result_text))
+            continue
+
         spec = tools.TOOLS.get(tool_use.name)
         if spec is not None and spec.mutating:
-            chat["messages"].append(_action_request_message(task["id"], spec, tool_use, text))
+            chat["messages"].append(_action_request_message(
+                task["id"], tools.describe_action(spec, tool_use.input), tool_use.name,
+                tool_use.input, tool_use.id, text,
+            ))
             return "awaiting_approval"
 
         result_text = (
             await tools.execute_tool(spec, tool_use.input, None) if spec else f"Unknown tool '{tool_use.name}'."
         )
-        # Only text/tool_use round-trip cleanly as request input; extended-thinking
-        # blocks the model may have emitted alongside them do not. And since we
-        # only ever execute the one `tool_use` picked above, any other tool_use
-        # blocks from a parallel-tool-call turn must be dropped here too — each
-        # kept tool_use needs its matching tool_result right after, and we only
-        # produce one.
-        kept_blocks = [b.model_dump() for b in response.content if b.type == "text" or b is tool_use]
-        anthropic_messages.append({"role": "assistant", "content": kept_blocks})
-        anthropic_messages.append({
-            "role": "user",
-            "content": [{"type": "tool_result", "tool_use_id": tool_use.id, "content": result_text}],
-        })
+        anthropic_messages.append(assistant_turn(response, tool_use))
+        anthropic_messages.append(tool_result_turn(tool_use.id, result_text))
 
     chat["messages"].append(
         text_message("assistant", "I wasn't able to finish this within the allotted tool-call rounds.")

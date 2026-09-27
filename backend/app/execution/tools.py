@@ -108,6 +108,87 @@ TOOLS: Dict[str, ToolSpec] = {
         mutating=False,
         simulate=_search_notes,
     ),
+    "delegate_subtask": ToolSpec(
+        name="delegate_subtask",
+        description=(
+            "Spin up a scoped sub-agent, with a restricted set of tools, to work on one specific "
+            "piece of this task. Use this to decompose complex work rather than doing everything "
+            "yourself in one pass. The sub-agent has no budget or approval flow of its own — a "
+            "mutating action it proposes still surfaces as a normal approval card on this task."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {
+                "instructions": {"type": "string", "description": "What the sub-agent should accomplish"},
+                "allowedTools": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Tool names the sub-agent may use; omit to allow all non-orchestration tools",
+                },
+            },
+            "required": ["instructions"],
+        },
+        mutating=False,
+        simulate=lambda p: "Sub-agent dispatched.",
+    ),
+    "delegate_to_agent": ToolSpec(
+        name="delegate_to_agent",
+        description=(
+            "Hand part of this task to a different Agent this one has an explicit delegation link "
+            "to. Only works if an Agent Admin already granted that link — otherwise it's refused. "
+            "The delegated work spends the target Agent's own budget and tools, never this one's, "
+            "and this task waits for its reply."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {
+                "targetAgentId": {"type": "string", "description": "The Agent id to delegate to"},
+                "request": {"type": "string", "description": "What you want the target Agent to do"},
+            },
+            "required": ["targetAgentId", "request"],
+        },
+        mutating=False,
+        simulate=lambda p: "Delegated.",
+    ),
+    "ask_user": ToolSpec(
+        name="ask_user",
+        description=(
+            "Ask the user a clarifying question when this task's short text isn't enough to act on "
+            "correctly, or when you get stuck mid-task and need more information. This pauses the "
+            "task until they reply in this task's chat — use it instead of guessing."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {
+                "question": {"type": "string", "description": "The question to ask the user"},
+            },
+            "required": ["question"],
+        },
+        mutating=False,
+        simulate=lambda p: "Question asked.",
+    ),
+    "mark_manual": ToolSpec(
+        name="mark_manual",
+        description=(
+            "Mark this task as needing manual follow-up when you've already done everything you can "
+            "and what happens next depends on someone outside this system — e.g. you sent a reminder "
+            "email and the task can't move forward until that person replies or acts. This pauses the "
+            "task until a human resolves it with what happened; use it instead of leaving the task "
+            "hanging or guessing at an outcome that hasn't happened yet."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {
+                "note": {
+                    "type": "string",
+                    "description": "What you're waiting on and from whom, e.g. 'Sent a reminder to priya@x.com about the signed contract — waiting on her reply.'",
+                },
+            },
+            "required": ["note"],
+        },
+        mutating=False,
+        simulate=lambda p: "Marked for manual follow-up.",
+    ),
 }
 
 

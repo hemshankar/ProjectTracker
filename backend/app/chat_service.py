@@ -24,7 +24,7 @@ def _pending_action_descriptions(board: dict) -> List[str]:
 
 def build_board_context(board: dict, tools_available: bool = True) -> str:
     lines = [
-        "You are a helpful assistant embedded in a project board app called Scatterboard. "
+        "You are a helpful assistant embedded in a project board app called Manifestation Board. "
         "Only discuss the board described below.",
         f"Board title: {board.get('title') or 'Untitled board'}",
     ]

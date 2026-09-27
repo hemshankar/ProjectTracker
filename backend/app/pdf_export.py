@@ -51,7 +51,7 @@ def build_pdf(boards: list) -> bytes:
 
     c.setFillColor(HexColor("#1C232D"))
     c.setFont("Helvetica-Bold", 20)
-    c.drawString(MARGIN, y[0], "Scatterboard: Project Summary")
+    c.drawString(MARGIN, y[0], "Manifestation Board: Project Summary")
     set_y(20)
 
     c.setFillColor(HexColor("#626E7C"))

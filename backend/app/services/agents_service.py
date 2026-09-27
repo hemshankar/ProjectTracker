@@ -8,13 +8,21 @@ from ..database import (
     users_collection,
 )
 from ..models import new_id, now_ms, board_to_json
-from ..models_identity import MemberInvite, MemberUpdate, agent_to_json, member_to_json
+from ..models_identity import AgentUpdate, MemberInvite, MemberUpdate, agent_to_json, member_to_json
+from . import audit_service
 
 
-async def create_agent(user: dict, name: str) -> dict:
+async def create_agent(user: dict, name: str, description: str = "") -> dict:
     agent_id = new_id()
     now = now_ms()
-    doc = {"_id": agent_id, "name": name.strip() or "Untitled Agent", "createdBy": user["_id"], "createdAt": now, "updatedAt": now}
+    doc = {
+        "_id": agent_id,
+        "name": name.strip() or "Untitled Agent",
+        "description": (description or "").strip(),
+        "createdBy": user["_id"],
+        "createdAt": now,
+        "updatedAt": now,
+    }
     await agents_collection.insert_one(doc)
     await agent_members_collection.insert_one(
         {
@@ -28,6 +36,29 @@ async def create_agent(user: dict, name: str) -> dict:
         }
     )
     return agent_to_json(doc, my_role="admin")
+
+
+async def update_agent(agent_id: str, payload: AgentUpdate, actor_id: str) -> dict:
+    before = await agents_collection.find_one({"_id": agent_id})
+    if not before:
+        raise HTTPException(status_code=404, detail="Agent not found")
+
+    updates = {}
+    if payload.name is not None:
+        updates["name"] = payload.name.strip() or before["name"]
+    if payload.description is not None:
+        updates["description"] = payload.description.strip()
+    if not updates:
+        return agent_to_json(before)
+
+    updates["updatedAt"] = now_ms()
+    await agents_collection.update_one({"_id": agent_id}, {"$set": updates})
+    after = await agents_collection.find_one({"_id": agent_id})
+    await audit_service.write_audit(
+        agent_id=agent_id, board_id=None, entity_type="agent", action="update",
+        actor_type="human", actor_id=actor_id, before=before, after=after,
+    )
+    return agent_to_json(after)
 
 
 async def list_agents_for_user(user: dict) -> list:
@@ -125,15 +156,24 @@ async def list_boards_for_agent(agent_id: str, user_id: str) -> list:
         )
         shared = [b async for b in shared_cursor]
 
+    # An inbound-delegation board (Phase 6) has no owner or per-user shares —
+    # it's visible to every member of this Agent, same as `get_board_role`.
+    seen_ids = {d["_id"] for d in owned + shared}
+    inbound_cursor = boards_collection.find({"agentId": agent_id, "inboundDelegation": True})
+    inbound = [b async for b in inbound_cursor if b["_id"] not in seen_ids]
+
     role_by_board = {s["boardId"]: s.get("role") for s in await board_shares_collection.find(
         {"userId": user_id}
     ).to_list(length=None)}
 
-    docs = owned + shared
+    docs = owned + shared + inbound
     docs.sort(key=lambda d: d.get("z", 0))
     out = []
     for d in docs:
         board = board_to_json(d)
-        board["myRole"] = "editor" if d.get("ownerId") == user_id else role_by_board.get(d["_id"], "viewer")
+        if d.get("inboundDelegation"):
+            board["myRole"] = "editor"
+        else:
+            board["myRole"] = "editor" if d.get("ownerId") == user_id else role_by_board.get(d["_id"], "viewer")
         out.append(board)
     return out

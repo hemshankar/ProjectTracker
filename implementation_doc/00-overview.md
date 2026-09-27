@@ -1,6 +1,6 @@
-# Scatterboard Agent — Technical Design & Implementation Plan
+# Manifestation Board Agent — Technical Design & Implementation Plan
 
-Companion to the [Scatterboard Agent PRD](../PRD.md) — one document per phase, each with a technical design and an implementation checklist.
+Companion to the [Manifestation Board Agent PRD](../PRD.md) — one document per phase, each with a technical design and an implementation checklist.
 
 Live, editable version: https://claude.ai/code/artifact/05b7ff97-cdf6-458a-a0c9-fa7ad086fc19
 

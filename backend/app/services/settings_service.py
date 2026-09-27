@@ -1,7 +1,9 @@
 from fastapi import HTTPException
 
+from .. import config
 from ..database import agent_settings_collection
 from ..models_settings import (
+    MAX_TOOL_ROUNDS_CEILING,
     MODEL_MAX_TOKENS,
     TOOL_TYPES,
     AgentSettingsUpdate,
@@ -27,6 +29,16 @@ def _resolve_model_config(before_doc: dict, update) -> dict:
         update.webSearchEnabled if update.webSearchEnabled is not None else current.get("webSearchEnabled", False)
     )
     return {"model": model, "maxTokens": max_tokens, "webSearchEnabled": web_search}
+
+
+def _resolve_execution(before_doc: dict, update) -> dict:
+    current = (before_doc.get("execution") or {}).get("maxToolRounds") or config.TASK_MAX_TOOL_ROUNDS
+    max_rounds = update.maxToolRounds if update.maxToolRounds is not None else current
+    if not (1 <= max_rounds <= MAX_TOOL_ROUNDS_CEILING):
+        raise HTTPException(
+            status_code=400, detail=f"maxToolRounds must be between 1 and {MAX_TOOL_ROUNDS_CEILING}"
+        )
+    return {"maxToolRounds": max_rounds}
 
 
 async def get_settings(agent_id: str) -> dict:
@@ -59,6 +71,10 @@ async def update_settings(agent_id: str, payload: AgentSettingsUpdate, actor_id:
         updates["rateLimits"] = rate_limits
     if payload.modelConfig is not None:
         updates["modelConfig"] = _resolve_model_config(before_doc, payload.modelConfig)
+    if payload.concurrency is not None:
+        updates["concurrency"] = {"maxConcurrentTasks": payload.concurrency.maxConcurrentTasks}
+    if payload.execution is not None:
+        updates["execution"] = _resolve_execution(before_doc, payload.execution)
 
     if not updates:
         return settings_to_json(before_doc)

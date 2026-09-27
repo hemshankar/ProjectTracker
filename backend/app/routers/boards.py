@@ -1,18 +1,20 @@
 import asyncio
 import json
 
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import StreamingResponse
 
 from .. import config, task_state
 from ..database import boards_collection
-from ..dependencies import get_agent_membership, get_current_user, require_agent_member, require_board_access
+from ..dependencies import get_agent_membership, get_board_role, get_current_user, require_agent_member, require_board_access
+from ..execution import clarification, manual, stopping
 from ..execution.events import events
 from ..execution.loop import AgentRunner
 from ..execution.registry import registry
 from ..models import (
     BoardCreate,
     BoardUpdate,
+    ChatMessageIn,
     ImportPayload,
     TaskIn,
     TaskUpdate,
@@ -25,7 +27,7 @@ from ..models import (
 )
 from ..models_tools import BoardBudgetUpdate
 from ..pdf_export import build_pdf
-from ..services import audit_service, tasks_service
+from ..services import audit_service, chats_service, labels_service, task_activity_service, tasks_service
 
 BOARD_STARTABLE_STATUSES = ("idle", "stopped", "failed", "blocked", "done")
 
@@ -48,6 +50,11 @@ async def _next_z(agent_id: str) -> int:
 async def create_board(payload: BoardCreate, user: dict = Depends(get_current_user)):
     if not await get_agent_membership(payload.agentId, user["_id"]):
         raise HTTPException(status_code=403, detail="Agent membership required")
+    label = None
+    if payload.labelId:
+        label = await labels_service.get_label(payload.labelId)
+        if label is None:
+            raise HTTPException(status_code=400, detail="Unknown label")
 
     z = await _next_z(payload.agentId)
     tasks = [t for t in (sanitize_task(t) for t in (payload.tasks or [])) if t]
@@ -57,7 +64,11 @@ async def create_board(payload: BoardCreate, user: dict = Depends(get_current_us
         "ownerId": user["_id"],
         "title": payload.title or "New board",
         "description": payload.description or "",
-        "color": payload.color if payload.color in config.HUES else config.HUES[(z - 1) % len(config.HUES)],
+        # A labeled board's color is locked to its label — see `update_board`.
+        "color": label["color"] if label else (
+            payload.color if payload.color in config.HUES else config.HUES[(z - 1) % len(config.HUES)]
+        ),
+        "labelId": payload.labelId or None,
         "completed": bool(payload.completed),
         "x": payload.x or 0,
         "y": payload.y or 0,
@@ -94,7 +105,11 @@ async def create_board(payload: BoardCreate, user: dict = Depends(get_current_us
 async def get_board(board_id: str, user: dict = Depends(require_board_access("viewer"))):
     doc = await _get_board(board_id)
     out = board_to_json(doc)
-    out["myRole"] = "editor" if doc.get("ownerId") == user["_id"] else "viewer"
+    # Derived the same way `list_boards_for_agent` does — not just the
+    # ownerId check, since an inbound-delegation board (Phase 6) has no
+    # owner but still grants any of its Agent's members editor access.
+    role, _ = await get_board_role(board_id, user["_id"])
+    out["myRole"] = role or "viewer"
     return out
 
 
@@ -104,6 +119,21 @@ async def update_board(board_id: str, payload: BoardUpdate, user: dict = Depends
     updates = {k: v for k, v in payload.model_dump(exclude_unset=True).items() if v is not None}
     if not updates:
         return board_to_json(before)
+
+    if "labelId" in updates:
+        if updates["labelId"] == "":
+            updates["labelId"] = None
+        else:
+            label = await labels_service.get_label(updates["labelId"])
+            if label is None:
+                raise HTTPException(status_code=400, detail="Unknown label")
+            # Locked to the label — overrides any color sent in this same request.
+            updates["color"] = label["color"]
+    elif "color" in updates and before.get("labelId"):
+        raise HTTPException(
+            status_code=400,
+            detail="This board's color is locked to its label — remove the label to change color",
+        )
     updates["updatedAt"] = now_ms()
     await boards_collection.update_one({"_id": board_id}, {"$set": updates})
     after = await _get_board(board_id)
@@ -285,6 +315,94 @@ async def get_task_messages(board_id: str, task_id: str, user: dict = Depends(re
     return {"taskId": task_id, "messages": messages}
 
 
+@router.get("/{board_id}/tasks/{task_id}/activity")
+async def get_task_activity(board_id: str, task_id: str, user: dict = Depends(require_board_access("viewer"))):
+    return await task_activity_service.get_task_activity(board_id, task_id, user["_id"])
+
+
+def _find_task(board: dict, task_id: str) -> dict:
+    task = next((t for t in board.get("tasks", []) if t["id"] == task_id), None)
+    if task is None:
+        raise HTTPException(status_code=404, detail="Task not found")
+    return task
+
+
+@router.get("/{board_id}/tasks/{task_id}/chat")
+async def get_task_chat(board_id: str, task_id: str, user: dict = Depends(require_board_access("viewer"))):
+    board = await _get_board(board_id)
+    task = _find_task(board, task_id)
+    chat = await chats_service.get_or_create_task_chat(board, task)
+    return {"chatId": chat["id"], "messages": chat["messages"]}
+
+
+@router.post("/{board_id}/tasks/{task_id}/chat/messages")
+async def send_task_chat_message(
+    board_id: str, task_id: str, payload: ChatMessageIn, user: dict = Depends(require_board_access("editor")),
+):
+    board = await _get_board(board_id)
+    task = _find_task(board, task_id)
+
+    if task.get("status") == "awaiting_clarification":
+        try:
+            return await clarification.answer(board_id, task_id, payload.text, user["_id"])
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc))
+
+    if task.get("status") == "manual":
+        try:
+            return await manual.resolve(board_id, task_id, payload.text, user["_id"])
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc))
+
+    chat = await chats_service.get_or_create_task_chat(board, task)
+    message = chats_service.text_message("user", payload.text)
+    message["taskId"] = task_id
+    await chats_service.append_messages(board_id, chat["id"], [message])
+    await audit_service.write_audit(
+        agent_id=board.get("agentId"),
+        board_id=board_id,
+        task_id=task_id,
+        entity_type="chat_message",
+        action="create",
+        actor_type="human",
+        actor_id=user["_id"],
+        before=None,
+        after=message,
+    )
+    return board_to_json(await _get_board(board_id))
+
+
+@router.post("/{board_id}/tasks/{task_id}/run")
+async def run_single_task(
+    board_id: str, task_id: str, user: dict = Depends(require_board_access("editor")),
+):
+    """Runs just this one task, independent of the board's own Start/Stop —
+    skips dispatch grouping and the board-level status gate entirely. Safe
+    to call even while the board's own automatic loop is active: every claim
+    goes through the same compare-and-swap `transition_task_status` call, so
+    whichever side claims the task first wins and the other no-ops.
+    """
+    reset = await tasks_service.prepare_task_for_run(board_id, task_id, user["_id"])
+    runner = AgentRunner(board_id=board_id, agent_id=reset.get("agentId"))
+    asyncio.create_task(runner.run_task_by_id(task_id))
+    return board_to_json(reset)
+
+
+@router.post("/{board_id}/tasks/{task_id}/stop")
+async def stop_single_task(
+    board_id: str, task_id: str, user: dict = Depends(require_board_access("editor")),
+):
+    """Stops just this one task, right now — cancels its in-flight run if
+    it's actually mid-call (see `execution.stopping`), or resolves it
+    straight to `stopped` if it was only suspended waiting on a human.
+    """
+    try:
+        await stopping.stop_task(board_id, task_id, user["_id"])
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    return board_to_json(await _get_board(board_id))
+
+
 # ---------------- execution (start/stop/live status) ----------------
 
 
@@ -338,6 +456,15 @@ async def stop_board(board_id: str, user: dict = Depends(require_board_access("e
     await boards_collection.update_one(
         {"_id": board_id}, {"$set": {"stopRequested": True, "updatedAt": now_ms()}}
     )
+    # Abrupt: cancel every task actually in flight right now, rather than
+    # just preventing the next stage from starting. `stopRequested` above is
+    # still set too — `AgentRunner.run()`'s own loop notices it and finalizes
+    # the board to `stopped` once these cancellations let it move past the
+    # `asyncio.gather(...)` it was waiting on (see `execution.stopping`).
+    for t in before.get("tasks", []):
+        if t.get("status") in stopping.STOPPABLE_STATUSES:
+            stopping.task_registry.cancel(t["id"])
+
     after = await _get_board(board_id)
     await audit_service.write_audit(
         agent_id=after.get("agentId"),
@@ -353,7 +480,9 @@ async def stop_board(board_id: str, user: dict = Depends(require_board_access("e
 
 
 @router.get("/{board_id}/events")
-async def board_events(board_id: str, _user: dict = Depends(require_board_access("viewer"))):
+async def board_events(
+    board_id: str, request: Request, _user: dict = Depends(require_board_access("viewer"))
+):
     board = await _get_board(board_id)
 
     async def event_stream():
@@ -362,7 +491,20 @@ async def board_events(board_id: str, _user: dict = Depends(require_board_access
             snapshot = {"boardId": board_id, "status": board.get("status", "idle")}
             yield f"data: {json.dumps(snapshot)}\n\n"
             while True:
-                event = await queue.get()
+                # Without this, a client that goes away without a clean TCP
+                # close (a refreshed tab, a dropped connection, this dev
+                # server's own --reload) leaves this generator parked on
+                # `queue.get()` forever — it's still an "active connection"
+                # as far as the server is concerned, which is exactly what
+                # piles up and blocks a graceful shutdown/reload from ever
+                # completing. Polling for disconnect, instead of just
+                # awaiting the queue outright, is what lets it actually exit.
+                try:
+                    event = await asyncio.wait_for(queue.get(), timeout=config.SSE_POLL_SECONDS)
+                except asyncio.TimeoutError:
+                    if await request.is_disconnected():
+                        return
+                    continue
                 yield f"data: {json.dumps(event)}\n\n"
         finally:
             events.unsubscribe(board_id, queue)

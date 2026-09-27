@@ -32,6 +32,7 @@ class BoardCreate(BaseModel):
     title: Optional[str] = "New board"
     description: Optional[str] = ""
     color: Optional[str] = None
+    labelId: Optional[str] = None
     completed: Optional[bool] = False
     x: Optional[float] = 0
     y: Optional[float] = 0
@@ -45,6 +46,7 @@ class BoardUpdate(BaseModel):
     title: Optional[str] = None
     description: Optional[str] = None
     color: Optional[str] = None
+    labelId: Optional[str] = None
     completed: Optional[bool] = None
     x: Optional[float] = None
     y: Optional[float] = None
@@ -135,6 +137,7 @@ def board_to_json(doc: dict) -> dict:
     out.setdefault("stopRequested", False)
     out.setdefault("statusReason", None)
     out.setdefault("budgetCapUsd", None)
+    out.setdefault("labelId", None)
     return out
 
 

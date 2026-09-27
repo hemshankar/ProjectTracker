@@ -17,6 +17,11 @@ MODEL_MAX_TOKENS: Dict[str, int] = {
 }
 DEFAULT_MODEL = config.ANTHROPIC_MODEL if config.ANTHROPIC_MODEL in MODEL_MAX_TOKENS else "claude-sonnet-5"
 
+# Ceiling for the per-Agent override of a task run's tool-call round budget
+# (see `config.TASK_MAX_TOOL_ROUNDS`) — generous enough for deep delegation
+# chains without letting a runaway task loop indefinitely.
+MAX_TOOL_ROUNDS_CEILING = 100
+
 
 class ToolSetting(BaseModel):
     enabled: bool = False
@@ -37,11 +42,27 @@ class ModelConfigUpdate(BaseModel):
     webSearchEnabled: Optional[bool] = None
 
 
+class ConcurrencySetting(BaseModel):
+    # None means unlimited — a plain `count_documents` guard (Phase 6), not a
+    # budget, so it has no per-unit distinction to track.
+    maxConcurrentTasks: Optional[int] = None
+
+
+class ExecutionSetting(BaseModel):
+    # Optional here only so a PATCH can omit it and keep the stored value —
+    # the resolved, stored setting always holds a concrete int (see
+    # `settings_service._resolve_execution`), never a bare None to fall back
+    # from, since there's no higher-level entity for this one to inherit.
+    maxToolRounds: Optional[int] = None
+
+
 class AgentSettingsUpdate(BaseModel):
     tools: Optional[Dict[str, ToolSetting]] = None
     budget: Optional[BudgetSetting] = None
     rateLimits: Optional[Dict[str, RateLimitSetting]] = None
     modelConfig: Optional[ModelConfigUpdate] = None
+    concurrency: Optional[ConcurrencySetting] = None
+    execution: Optional[ExecutionSetting] = None
 
 
 def _default_rate_limits() -> dict:
@@ -59,18 +80,24 @@ def default_agent_settings(agent_id: str) -> dict:
         "budget": {"capUsd": None, "unit": "usd"},
         "rateLimits": _default_rate_limits(),
         "modelConfig": default_model_config(),
+        "concurrency": {"maxConcurrentTasks": None},
+        "execution": {"maxToolRounds": config.TASK_MAX_TOOL_ROUNDS},
     }
 
 
 def settings_to_json(doc: dict) -> dict:
+    execution = doc.get("execution") or {}
     return {
         "agentId": doc["_id"],
         "tools": doc.get("tools", {t: {"enabled": False} for t in TOOL_TYPES}),
         "budget": doc.get("budget", {"capUsd": None, "unit": "usd"}),
         "rateLimits": doc.get("rateLimits") or _default_rate_limits(),
         "modelConfig": doc.get("modelConfig") or default_model_config(),
+        "concurrency": doc.get("concurrency") or {"maxConcurrentTasks": None},
+        "execution": {"maxToolRounds": execution.get("maxToolRounds") or config.TASK_MAX_TOOL_ROUNDS},
         # Ceilings for the settings UI to build its model picker and clamp
-        # the maxTokens input from — the backend stays the single source
-        # of truth instead of duplicating this table in the frontend.
+        # the maxTokens/maxToolRounds inputs from — the backend stays the
+        # single source of truth instead of duplicating these in the frontend.
         "modelLimits": MODEL_MAX_TOKENS,
+        "maxToolRoundsCeiling": MAX_TOOL_ROUNDS_CEILING,
     }

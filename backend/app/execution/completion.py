@@ -2,13 +2,16 @@
 not just none left idle to pick up. A task can be sitting in
 `awaiting_approval` (or `awaiting_reply`) with no idle task behind it; the
 board must keep its "running" (processing) status until that's resolved
-too, so the glow stays accurate.
+too, so the glow stays accurate. A task marked `manual` is the same case —
+still pending on an external reply, not a clean finish.
 """
 from ..database import boards_collection
 from .. import task_state
 from .events import events
 
-_PENDING_TASK_STATUSES = {"idle", "queued", "running", "awaiting_reply", "awaiting_approval"}
+_PENDING_TASK_STATUSES = {
+    "idle", "queued", "running", "awaiting_reply", "awaiting_approval", "awaiting_clarification", "manual",
+}
 
 
 async def try_complete_board(board_id: str) -> None:

@@ -1,8 +1,6 @@
 import asyncio
-import json
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response
-from fastapi.responses import StreamingResponse
+from fastapi import APIRouter, Depends, HTTPException, Response
 
 from .. import config, task_state
 from ..database import boards_collection
@@ -501,36 +499,3 @@ async def stop_board(board_id: str, user: dict = Depends(require_board_access("e
         after=after,
     )
     return {"ok": True}
-
-
-@router.get("/{board_id}/events")
-async def board_events(
-    board_id: str, request: Request, _user: dict = Depends(require_board_access("viewer"))
-):
-    board = await _get_board(board_id)
-
-    async def event_stream():
-        queue = events.subscribe(board_id)
-        try:
-            snapshot = {"boardId": board_id, "status": board.get("status", "idle")}
-            yield f"data: {json.dumps(snapshot)}\n\n"
-            while True:
-                # Without this, a client that goes away without a clean TCP
-                # close (a refreshed tab, a dropped connection, this dev
-                # server's own --reload) leaves this generator parked on
-                # `queue.get()` forever — it's still an "active connection"
-                # as far as the server is concerned, which is exactly what
-                # piles up and blocks a graceful shutdown/reload from ever
-                # completing. Polling for disconnect, instead of just
-                # awaiting the queue outright, is what lets it actually exit.
-                try:
-                    event = await asyncio.wait_for(queue.get(), timeout=config.SSE_POLL_SECONDS)
-                except asyncio.TimeoutError:
-                    if await request.is_disconnected():
-                        return
-                    continue
-                yield f"data: {json.dumps(event)}\n\n"
-        finally:
-            events.unsubscribe(board_id, queue)
-
-    return StreamingResponse(event_stream(), media_type="text/event-stream")

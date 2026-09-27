@@ -64,9 +64,11 @@ RATE_LIMIT_WINDOW_MS = 24 * 60 * 60 * 1000
 RATE_LIMIT_POLL_SECONDS = 2
 LOCK_POLL_SECONDS = 2
 
-# How often a board's SSE stream checks for a gone-away client between real
-# events — the only thing that lets an abandoned connection actually close.
-SSE_POLL_SECONDS = 15
+# How often the per-agent board-events WebSocket re-checks the caller's
+# visible board set between real events — this is what picks up a board
+# that was just created, shared, or unshared without a dedicated signal
+# for it.
+BOARD_EVENTS_POLL_SECONDS = 15
 
 # A task's own tool-call round budget. Each round is one model turn, and
 # each `delegate_subtask`/`delegate_to_agent` dispatch consumes one round

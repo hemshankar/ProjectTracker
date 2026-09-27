@@ -21,8 +21,7 @@
   function renderAll(){
     var state = window.BoardState.state;
     var canvas = document.getElementById("canvas");
-    state.activeBoardStreams.forEach(function(es){ try{ es.close(); }catch(e){} });
-    state.activeBoardStreams = [];
+    window.BoardSocket.reset();
     canvas.innerHTML = "";
     state.boards.filter(function(b){ return !b.completed; }).forEach(function(board){
       canvas.appendChild(window.BoardCard.create(board));

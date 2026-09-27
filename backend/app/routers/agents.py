@@ -1,9 +1,14 @@
+import asyncio
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
 
-from ..dependencies import get_current_user, require_agent_admin, require_agent_member
+from .. import config
+from ..database import users_collection
+from ..dependencies import get_agent_membership, get_current_user, require_agent_admin, require_agent_member
+from ..execution.events import events
 from ..models_identity import AgentCreate, AgentLinkCreate, AgentUpdate, MemberInvite, MemberUpdate
+from ..security import verify_session
 from ..services import agent_links_service, agents_service, observability, undo_service
 
 router = APIRouter(prefix="/api/agents", tags=["agents"])
@@ -27,6 +32,72 @@ async def update_agent(agent_id: str, payload: AgentUpdate, admin: dict = Depend
 @router.get("/{agent_id}/boards")
 async def list_agent_boards(agent_id: str, user: dict = Depends(require_agent_member())):
     return await agents_service.list_boards_for_agent(agent_id, user["_id"])
+
+
+@router.websocket("/{agent_id}/ws")
+async def agent_board_events(websocket: WebSocket, agent_id: str):
+    """One connection per agent, multiplexing every visible board's status/
+    task/glow events — replaces what used to be one SSE connection per
+    board, which was exhausting the browser's per-origin connection limit
+    once an agent had more than a handful of boards open at once.
+
+    Dependency injection doesn't run for WebSocket routes the way it does
+    for HTTP ones, so auth is done by hand here rather than reusing
+    `get_current_user`/`require_agent_member`.
+    """
+    token = websocket.cookies.get(config.SESSION_COOKIE_NAME)
+    user_id = verify_session(token) if token else None
+    user = await users_collection.find_one({"_id": user_id}) if user_id else None
+    if not user or not await get_agent_membership(agent_id, user_id):
+        await websocket.close(code=4401)
+        return
+
+    await websocket.accept()
+
+    queue: "asyncio.Queue[dict]" = asyncio.Queue()
+    subscribed_ids: set = set()
+
+    async def resync():
+        boards = await agents_service.list_boards_for_agent(agent_id, user_id)
+        board_ids = {b["id"] for b in boards}
+        added = board_ids - subscribed_ids
+        removed = subscribed_ids - board_ids
+        if added:
+            events.subscribe_many(added, queue)
+            subscribed_ids.update(added)
+        if removed:
+            events.unsubscribe_many(removed, queue)
+            subscribed_ids.difference_update(removed)
+
+    await resync()
+
+    async def sender():
+        while True:
+            try:
+                event = await asyncio.wait_for(queue.get(), timeout=config.BOARD_EVENTS_POLL_SECONDS)
+            except asyncio.TimeoutError:
+                await resync()
+                continue
+            await websocket.send_json(event)
+
+    async def receiver():
+        # The client never sends anything meaningful — this is just what
+        # notices a closed socket, since `sender` only ever calls `send`.
+        while True:
+            await websocket.receive_text()
+
+    sender_task = asyncio.create_task(sender())
+    receiver_task = asyncio.create_task(receiver())
+    try:
+        done, pending = await asyncio.wait({sender_task, receiver_task}, return_when=asyncio.FIRST_COMPLETED)
+        for task in pending:
+            task.cancel()
+        for task in done:
+            exc = task.exception()
+            if exc and not isinstance(exc, WebSocketDisconnect):
+                raise exc
+    finally:
+        events.unsubscribe_many(subscribed_ids, queue)
 
 
 @router.post("/{agent_id}/undo")

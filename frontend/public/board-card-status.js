@@ -2,7 +2,6 @@
   "use strict";
 
   var apiPost = window.BoardApi.apiPost;
-  var API = window.BoardApi.API;
   var findTask = window.BoardState.findTask;
 
   // What each glow state means, in words — the ring color alone doesn't
@@ -72,44 +71,35 @@
 
     updateRunUI();
 
-    var eventSource = null;
-    try{
-      eventSource = new EventSource(API + "/boards/" + board.id + "/events");
-      eventSource.onmessage = function(ev){
-        var data;
-        try{ data = JSON.parse(ev.data); }catch(err){ return; }
-        if(data.type === "chat_delta" || data.type === "chat_stream_start" || data.type === "chat_stream_end"){
-          if(data.taskId && window.BoardTaskDetail) window.BoardTaskDetail.onStreamEvent(board.id, data);
-          return;
+    window.BoardSocket.on(board.id, function(data){
+      if(data.type === "chat_delta" || data.type === "chat_stream_start" || data.type === "chat_stream_end"){
+        if(data.taskId && window.BoardTaskDetail) window.BoardTaskDetail.onStreamEvent(board.id, data);
+        return;
+      }
+      if(data.taskId){
+        var t = findTask(board, data.taskId);
+        if(!t) return;
+        t.status = data.status;
+        t.done = data.status === "done";
+        if("statusReason" in data) t.statusReason = data.statusReason;
+        ctx.renderTasks();
+        ctx.updateMeta();
+        window.BoardTaskDetail.refreshIfOpen(board.id, data.taskId);
+        if(window.BoardChat) window.BoardChat.refreshTabsIfOpen(board.id);
+      } else {
+        if("status" in data){
+          board.status = data.status;
+          board.statusReason = data.statusReason;
         }
-        if(data.taskId){
-          var t = findTask(board, data.taskId);
-          if(!t) return;
-          t.status = data.status;
-          t.done = data.status === "done";
-          if("statusReason" in data) t.statusReason = data.statusReason;
-          ctx.renderTasks();
-          ctx.updateMeta();
-          window.BoardTaskDetail.refreshIfOpen(board.id, data.taskId);
-          if(window.BoardChat) window.BoardChat.refreshTabsIfOpen(board.id);
-        } else if(data.boardId){
-          if("status" in data){
-            board.status = data.status;
-            board.statusReason = data.statusReason;
-          }
-          if("glow" in data){
-            board.glow = data.glow;
-          }
-          if(data.llmCall && window.AdminConsole){
-            window.AdminConsole.onLiveLlmCall(data.boardId, data.llmCall);
-          }
-          updateRunUI();
+        if("glow" in data){
+          board.glow = data.glow;
         }
-      };
-      window.BoardState.state.activeBoardStreams.push(eventSource);
-    }catch(e){}
-
-    ctx.eventSource = eventSource;
+        if(data.llmCall && window.AdminConsole){
+          window.AdminConsole.onLiveLlmCall(data.boardId, data.llmCall);
+        }
+        updateRunUI();
+      }
+    });
   }
 
   window.BoardCardStatus = { wire: wire };

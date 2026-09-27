@@ -183,7 +183,7 @@
         ev.stopPropagation();
         var state = window.BoardState.state;
         state.boards = state.boards.filter(function(b){ return b.id !== board.id; });
-        if(ctx.eventSource) ctx.eventSource.close();
+        window.BoardSocket.off(board.id);
         el.remove();
         window.BoardList.updateCount();
         apiDelete("/boards/" + board.id).catch(function(){});

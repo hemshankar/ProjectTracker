@@ -4,6 +4,7 @@
   async function reloadBoards(){
     var state = window.BoardState.state;
     var agentId = window.Identity && window.Identity.getCurrentAgentId();
+    window.BoardSocket.connect(agentId);
     if(!agentId){ state.boards = []; window.BoardList.renderAll(); return; }
     try{
       state.boards = await window.Identity.apiGet("/agents/" + agentId + "/boards");

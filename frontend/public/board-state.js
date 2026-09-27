@@ -3,8 +3,7 @@
 
   var state = {
     boards: [],
-    zCounter: 10,
-    activeBoardStreams: []
+    zCounter: 10
   };
 
   function findBoard(boardId){

@@ -22,7 +22,6 @@
 
     el.innerHTML =
       '<div class="card-topbar"></div>' +
-      '<button type="button" class="glow-banner" hidden></button>' +
       '<div class="card-header">' +
         '<div class="card-title" spellcheck="false"></div>' +
         '<div class="card-header-actions">' +
@@ -46,6 +45,7 @@
         '<div class="task-count"></div>' +
         '<form class="task-add"><input type="text" placeholder="Add a task&hellip;" aria-label="New task"><button type="submit">Add</button></form>' +
       "</div>" +
+      '<button type="button" class="glow-banner" hidden></button>' +
       '<div class="resize-handle" aria-hidden="true"><svg width="12" height="12" viewBox="0 0 12 12"><path d="M10 1 1 10M11 5.5 5.5 11M11 9 9 11" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg></div>';
 
     var titleEl = el.querySelector(".card-title");

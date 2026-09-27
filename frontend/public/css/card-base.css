@@ -46,8 +46,8 @@
   box-shadow:0 6px 16px var(--shadow), 0 0 0 2px var(--danger);
 }
 /* The ring color alone doesn't say why a board is glowing — this banner
-   spells it out in words, right under the topbar so it's visible without
-   opening the board's chat. */
+   spells it out in words, at the bottom of the board so it's visible
+   without opening the board's chat. */
 .glow-banner{
   flex:none;
   display:block;

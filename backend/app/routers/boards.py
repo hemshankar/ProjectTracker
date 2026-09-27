@@ -17,6 +17,7 @@ from ..models import (
     ChatMessageIn,
     ImportPayload,
     TaskIn,
+    TaskMoveIn,
     TaskUpdate,
     board_export_shape,
     board_to_json,
@@ -25,6 +26,7 @@ from ..models import (
     sanitize_import_board,
     sanitize_task,
 )
+from ..models_identity import BOARD_ROLE_RANK
 from ..models_tools import BoardBudgetUpdate
 from ..pdf_export import build_pdf
 from ..services import audit_service, chats_service, labels_service, observability, task_activity_service, tasks_service
@@ -295,6 +297,19 @@ async def update_task(
 @router.delete("/{board_id}/tasks/{task_id}")
 async def delete_task(board_id: str, task_id: str, user: dict = Depends(require_board_access("editor"))):
     await tasks_service.delete_task(board_id, task_id, user["_id"])
+    return {"ok": True}
+
+
+@router.post("/{board_id}/tasks/{task_id}/move")
+async def move_task(
+    board_id: str, task_id: str, payload: TaskMoveIn, user: dict = Depends(require_board_access("editor")),
+):
+    target_role, target_board = await get_board_role(payload.targetBoardId, user["_id"])
+    if target_board is None:
+        raise HTTPException(status_code=404, detail="Target board not found")
+    if target_role is None or BOARD_ROLE_RANK[target_role] < BOARD_ROLE_RANK["editor"]:
+        raise HTTPException(status_code=403, detail="Insufficient access to target board")
+    await tasks_service.move_task(board_id, task_id, payload.targetBoardId, user["_id"])
     return {"ok": True}
 
 

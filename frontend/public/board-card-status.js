@@ -78,6 +78,10 @@
       eventSource.onmessage = function(ev){
         var data;
         try{ data = JSON.parse(ev.data); }catch(err){ return; }
+        if(data.type === "chat_delta" || data.type === "chat_stream_start" || data.type === "chat_stream_end"){
+          if(data.taskId && window.BoardTaskDetail) window.BoardTaskDetail.onStreamEvent(board.id, data);
+          return;
+        }
         if(data.taskId){
           var t = findTask(board, data.taskId);
           if(!t) return;
@@ -87,6 +91,7 @@
           ctx.renderTasks();
           ctx.updateMeta();
           window.BoardTaskDetail.refreshIfOpen(board.id, data.taskId);
+          if(window.BoardChat) window.BoardChat.refreshTabsIfOpen(board.id);
         } else if(data.boardId){
           if("status" in data){
             board.status = data.status;

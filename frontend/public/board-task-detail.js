@@ -5,53 +5,70 @@
   var apiPost = window.BoardApi.apiPost;
   var findBoard = window.BoardState.findBoard;
   var findTask = window.BoardState.findTask;
-  var setModalTitle = window.BoardUtil.setModalTitle;
-  var closeAllPopovers = window.BoardUtil.closeAllPopovers;
   var TASK_RUNNABLE_STATUSES = window.BoardUtil.TASK_RUNNABLE_STATUSES;
   var TASK_STOPPABLE_STATUSES = window.BoardUtil.TASK_STOPPABLE_STATUSES;
   var Render = window.BoardTaskDetailRender;
 
-  var taskDetailModal = document.getElementById("task-detail-modal");
-  var taskDetailTitle = document.getElementById("task-detail-title");
-  var taskDetailSubtitle = document.getElementById("task-detail-subtitle");
-  var taskDetailClose = document.getElementById("task-detail-close");
-  var taskDetailBody = document.getElementById("task-detail-body");
+  // Content controller for a task's tab inside the unified chat modal
+  // (`board-chat.js` owns the modal shell and tab strip; this owns what's
+  // rendered into the shared body/activity elements and the run/stop/send
+  // actions, for whichever task tab is currently active).
+  var taskDetailBody = document.getElementById("chat-modal-body");
   var taskDetailActivityBody = document.getElementById("task-detail-activity-body");
   var taskDetailTabBtnChat = document.getElementById("task-detail-tab-btn-chat");
   var taskDetailTabBtnActivity = document.getElementById("task-detail-tab-btn-activity");
   var taskDetailRunBtn = document.getElementById("task-detail-run-btn");
   var taskDetailStopBtn = document.getElementById("task-detail-stop-btn");
-  var taskDetailForm = document.getElementById("task-detail-form");
-  var taskDetailTextarea = document.getElementById("task-detail-textarea");
-  var taskDetailSendBtn = document.getElementById("task-detail-send");
+  var taskDetailForm = document.getElementById("chat-modal-form");
+  var taskDetailTextarea = document.getElementById("chat-modal-textarea");
+  var taskDetailSendBtn = document.getElementById("chat-modal-send");
 
   var taskDetailBoardId = null;
   var taskDetailTaskId = null;
   var taskDetailChatId = null;
+  var taskDetailSubTab = "chat";
   var taskDetailSending = false;
 
-  async function openTaskDetailModal(boardId, task){
-    var board = findBoard(boardId);
-    if(!board) return;
+  // Token-by-token text from an in-flight run, shown as a transient bubble
+  // until the next authoritative refresh (a status change, or a fresh
+  // `chat_stream_start`) reconciles it with the persisted messages.
+  var streamText = "";
+  var streamActive = false;
+
+  function isActive(boardId, taskId){
+    return taskDetailBoardId === boardId && taskDetailTaskId === taskId;
+  }
+
+  async function activate(boardId, task){
     taskDetailBoardId = boardId;
     taskDetailTaskId = task.id;
     taskDetailChatId = null;
-    setModalTitle(taskDetailTitle, task.text || "Task");
-    taskDetailSubtitle.textContent = task.status ? ("Status: " + task.status) : "";
-    var runnable = TASK_RUNNABLE_STATUSES[task.status] && board.myRole !== "viewer";
-    var stoppable = TASK_STOPPABLE_STATUSES[task.status] && board.myRole !== "viewer";
+    streamText = "";
+    streamActive = false;
+    activateSubTab("chat");
+    updateHeaderButtons();
+    taskDetailBody.innerHTML = '<div class="chat-empty">Loading&hellip;</div>';
+    taskDetailActivityBody.innerHTML = "";
+    await loadTaskDetail(boardId, task.id);
+  }
+
+  function deactivate(){
+    taskDetailBoardId = null;
+    taskDetailTaskId = null;
+    taskDetailChatId = null;
+    streamText = "";
+    streamActive = false;
+  }
+
+  function updateHeaderButtons(){
+    var board = findBoard(taskDetailBoardId);
+    var task = board && findTask(board, taskDetailTaskId);
+    var runnable = !!task && TASK_RUNNABLE_STATUSES[task.status] && board.myRole !== "viewer";
+    var stoppable = !!task && TASK_STOPPABLE_STATUSES[task.status] && board.myRole !== "viewer";
     taskDetailRunBtn.hidden = !runnable;
     taskDetailRunBtn.disabled = !runnable;
     taskDetailStopBtn.hidden = !stoppable;
     taskDetailStopBtn.disabled = !stoppable;
-    taskDetailModal.hidden = false;
-    closeAllPopovers();
-    activateTaskDetailTab("chat");
-    taskDetailBody.innerHTML = '<div class="chat-empty">Loading&hellip;</div>';
-    taskDetailActivityBody.innerHTML = "";
-    taskDetailTextarea.value = "";
-    await loadTaskDetail(boardId, task.id);
-    if(taskDetailBoardId === boardId && taskDetailTaskId === task.id) taskDetailTextarea.focus();
   }
 
   async function loadTaskDetail(boardId, taskId){
@@ -62,38 +79,43 @@
         apiGet("/boards/" + boardId + "/tasks/" + taskId + "/activity"),
         apiGet("/boards/" + boardId + "/tasks/" + taskId + "/chat")
       ]);
-      if(taskDetailBoardId !== boardId || taskDetailTaskId !== taskId) return;
+      if(!isActive(boardId, taskId)) return;
       var activity = results[0];
       var chatData = results[1];
       taskDetailChatId = chatData.chatId;
+      streamText = "";
+      streamActive = false;
       renderTaskDetailActivity(board, {id: chatData.chatId, messages: chatData.messages}, activity);
     }catch(e){
-      if(taskDetailBoardId !== boardId || taskDetailTaskId !== taskId) return;
+      if(!isActive(boardId, taskId)) return;
       taskDetailBody.innerHTML = '<div class="chat-empty">Couldn&rsquo;t load this task&rsquo;s activity.</div>';
     }
   }
 
+  function buildStreamingBubble(){
+    var wrap = document.createElement("div");
+    wrap.className = "chat-msg chat-msg-assistant";
+    var bubble = document.createElement("div");
+    bubble.className = "chat-bubble chat-bubble-streaming";
+    bubble.textContent = streamText;
+    wrap.appendChild(bubble);
+    return wrap;
+  }
+
   function renderTaskDetailActivity(board, chat, activity){
     var task = findTask(board, taskDetailTaskId);
-    if(task){
-      setModalTitle(taskDetailTitle, task.text || "Task");
-      taskDetailSubtitle.textContent = task.status ? ("Status: " + task.status) : "";
-    }
-    var runnable = !!task && TASK_RUNNABLE_STATUSES[task.status] && board.myRole !== "viewer";
-    var stoppable = !!task && TASK_STOPPABLE_STATUSES[task.status] && board.myRole !== "viewer";
-    taskDetailRunBtn.hidden = !runnable;
-    taskDetailRunBtn.disabled = !runnable;
-    taskDetailStopBtn.hidden = !stoppable;
-    taskDetailStopBtn.disabled = !stoppable;
+    if(task && window.BoardChat) window.BoardChat.updateTaskTabHeader(board, task);
+    updateHeaderButtons();
     taskDetailBody.innerHTML = "";
     var messages = chat.messages || [];
-    if(!messages.length){
+    if(!messages.length && !streamActive){
       var empty = document.createElement("div");
       empty.className = "chat-empty";
       empty.textContent = "No activity yet for this task. Say something below to get started.";
       taskDetailBody.appendChild(empty);
     } else {
       messages.forEach(function(m){ taskDetailBody.appendChild(Render.buildOwnTaskMessageEl(board, chat, m)); });
+      if(streamActive) taskDetailBody.appendChild(buildStreamingBubble());
     }
     taskDetailBody.scrollTop = taskDetailBody.scrollHeight;
 
@@ -103,16 +125,50 @@
     taskDetailActivityBody.appendChild(Render.buildPeerAgentSection(activity.peerDelegations || []));
   }
 
-  function closeTaskDetailModal(){
-    taskDetailModal.hidden = true;
-    taskDetailBoardId = null;
-    taskDetailTaskId = null;
-    taskDetailChatId = null;
+  function renderStreamBubble(){
+    if(taskDetailSubTab !== "chat") return;
+    var existing = taskDetailBody.querySelector(".chat-bubble-streaming");
+    if(existing){
+      existing.textContent = streamText;
+    } else {
+      var emptyEl = taskDetailBody.querySelector(".chat-empty");
+      if(emptyEl) emptyEl.remove();
+      taskDetailBody.appendChild(buildStreamingBubble());
+    }
+    taskDetailBody.scrollTop = taskDetailBody.scrollHeight;
+  }
+
+  function onStreamEvent(boardId, data){
+    if(!isActive(boardId, data.taskId)) return;
+    if(data.type === "chat_stream_start"){
+      streamActive = true;
+      streamText = "";
+      renderStreamBubble();
+    } else if(data.type === "chat_delta"){
+      streamActive = true;
+      streamText += data.delta || "";
+      renderStreamBubble();
+    }
+    // `chat_stream_end` needs no handling here — either another
+    // `chat_stream_start` (next tool round) or the task's next status-change
+    // event (`refreshTaskDetailIfOpen`) reconciles this transient bubble
+    // with whatever actually got persisted.
   }
 
   function refreshTaskDetailIfOpen(boardId, taskId){
-    if(taskDetailBoardId !== boardId || taskDetailTaskId !== taskId) return;
+    if(!isActive(boardId, taskId)) return;
     loadTaskDetail(boardId, taskId);
+  }
+
+  function activateSubTab(name){
+    taskDetailSubTab = name;
+    taskDetailBody.hidden = name !== "chat";
+    taskDetailActivityBody.hidden = name !== "activity";
+    taskDetailTabBtnChat.classList.toggle("active", name === "chat");
+    taskDetailTabBtnChat.setAttribute("aria-selected", name === "chat" ? "true" : "false");
+    taskDetailTabBtnActivity.classList.toggle("active", name === "activity");
+    taskDetailTabBtnActivity.setAttribute("aria-selected", name === "activity" ? "true" : "false");
+    taskDetailForm.hidden = name !== "chat";
   }
 
   async function sendTaskDetailMessage(){
@@ -133,7 +189,7 @@
       }
       taskDetailTextarea.value = "";
       autoSizeTaskDetailTextarea();
-      if(taskDetailBoardId === boardId && taskDetailTaskId === taskId) await loadTaskDetail(boardId, taskId);
+      if(isActive(boardId, taskId)) await loadTaskDetail(boardId, taskId);
     }catch(e){
       // Left in the textarea so the user can retry.
     }finally{
@@ -159,9 +215,9 @@
         board.tasks = resp.tasks;
         board.status = resp.status;
       }
-      if(taskDetailBoardId === boardId && taskDetailTaskId === taskId) await loadTaskDetail(boardId, taskId);
+      if(isActive(boardId, taskId)) await loadTaskDetail(boardId, taskId);
     }catch(e){
-      if(taskDetailBoardId === boardId && taskDetailTaskId === taskId) await loadTaskDetail(boardId, taskId);
+      if(isActive(boardId, taskId)) await loadTaskDetail(boardId, taskId);
     }
   }
 
@@ -177,53 +233,26 @@
         board.tasks = resp.tasks;
         board.status = resp.status;
       }
-      if(taskDetailBoardId === boardId && taskDetailTaskId === taskId) await loadTaskDetail(boardId, taskId);
+      if(isActive(boardId, taskId)) await loadTaskDetail(boardId, taskId);
     }catch(e){
-      if(taskDetailBoardId === boardId && taskDetailTaskId === taskId) await loadTaskDetail(boardId, taskId);
+      if(isActive(boardId, taskId)) await loadTaskDetail(boardId, taskId);
     }
   }
 
-  var TASK_DETAIL_TAB_PANELS = {chat: taskDetailBody, activity: taskDetailActivityBody};
-  var TASK_DETAIL_TAB_BUTTONS = {chat: taskDetailTabBtnChat, activity: taskDetailTabBtnActivity};
-
-  function activateTaskDetailTab(name){
-    Object.keys(TASK_DETAIL_TAB_PANELS).forEach(function(key){
-      TASK_DETAIL_TAB_PANELS[key].hidden = key !== name;
-      TASK_DETAIL_TAB_BUTTONS[key].classList.toggle("active", key === name);
-      TASK_DETAIL_TAB_BUTTONS[key].setAttribute("aria-selected", key === name ? "true" : "false");
-    });
-    taskDetailForm.hidden = name !== "chat";
-  }
-
   function wireTaskDetailModal(){
-    TASK_DETAIL_TAB_BUTTONS.chat.addEventListener("click", function(){ activateTaskDetailTab("chat"); });
-    TASK_DETAIL_TAB_BUTTONS.activity.addEventListener("click", function(){ activateTaskDetailTab("activity"); });
-    taskDetailClose.addEventListener("click", closeTaskDetailModal);
-    taskDetailModal.addEventListener("mousedown", function(e){
-      if(e.target === taskDetailModal) closeTaskDetailModal();
-    });
-    document.addEventListener("keydown", function(e){
-      if(e.key === "Escape" && !taskDetailModal.hidden) closeTaskDetailModal();
-    });
+    taskDetailTabBtnChat.addEventListener("click", function(){ activateSubTab("chat"); });
+    taskDetailTabBtnActivity.addEventListener("click", function(){ activateSubTab("activity"); });
     taskDetailRunBtn.addEventListener("click", runSingleTask);
     taskDetailStopBtn.addEventListener("click", stopSingleTask);
-    taskDetailForm.addEventListener("submit", function(e){
-      e.preventDefault();
-      sendTaskDetailMessage();
-    });
-    taskDetailTextarea.addEventListener("keydown", function(e){
-      if(e.key === "Enter" && !e.shiftKey){
-        e.preventDefault();
-        if(taskDetailForm.requestSubmit) taskDetailForm.requestSubmit();
-        else taskDetailForm.dispatchEvent(new Event("submit", {cancelable:true}));
-      }
-    });
-    taskDetailTextarea.addEventListener("input", autoSizeTaskDetailTextarea);
   }
 
   window.BoardTaskDetail = {
-    open: openTaskDetailModal,
+    open: function(boardId, task){ if(window.BoardChat) window.BoardChat.openTask(boardId, task); },
+    activate: activate,
+    deactivate: deactivate,
     init: wireTaskDetailModal,
-    refreshIfOpen: refreshTaskDetailIfOpen
+    refreshIfOpen: refreshTaskDetailIfOpen,
+    sendMessage: sendTaskDetailMessage,
+    onStreamEvent: onStreamEvent
   };
 })();

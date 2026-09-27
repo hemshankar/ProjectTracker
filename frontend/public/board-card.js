@@ -192,6 +192,7 @@
     });
 
     window.BoardCardDrag.wire(ctx);
+    el._ctx = ctx;
 
     return el;
   }

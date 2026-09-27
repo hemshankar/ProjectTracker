@@ -6,7 +6,7 @@
   var apiDelete = window.BoardApi.apiDelete;
   var U = window.BoardUtil;
   var wireInlineEditable = U.wireInlineEditable;
-  var checkIcon = U.checkIcon, runIcon = U.runIcon, stopIcon = U.stopIcon, pencilIcon = U.pencilIcon;
+  var checkIcon = U.checkIcon, runIcon = U.runIcon, stopIcon = U.stopIcon, pencilIcon = U.pencilIcon, moveIcon = U.moveIcon;
   var linkify = window.BoardMarkdown.linkify;
   var TASK_RUNNABLE_STATUSES = U.TASK_RUNNABLE_STATUSES;
   var TASK_STOPPABLE_STATUSES = U.TASK_STOPPABLE_STATUSES;
@@ -30,14 +30,19 @@
       li.className = "task";
       li.setAttribute("data-done", "true");
       li.innerHTML =
+        '<button class="task-move-btn" aria-label="Move to another board">' + moveIcon() + "</button>" +
         '<button class="task-check" aria-label="Restore task">' + checkIcon() + "</button>" +
         '<span class="task-text"></span>' +
         '<button class="task-del" aria-label="Delete task permanently">&times;</button>';
       li.querySelector(".task-text").innerHTML = linkify(task.text);
       li.addEventListener("click", function(e){
-        if(e.target.closest(".task-check, .task-del, a")) return;
+        if(li.__dragMoved) return;
+        if(e.target.closest(".task-check, .task-del, .task-move-btn, .task-move-pop, a")) return;
         window.BoardTaskDetail.open(board.id, task);
       });
+      var moveBtn = li.querySelector(".task-move-btn");
+      window.BoardTaskMove.wire(moveBtn, li, ctx, task);
+      window.BoardTaskDrag.wire(moveBtn, li, ctx, task);
       li.querySelector(".task-check").disabled = readOnly;
       li.querySelector(".task-check").addEventListener("pointerdown", function(e){ e.stopPropagation(); });
       li.querySelector(".task-check").addEventListener("click", function(){
@@ -94,6 +99,7 @@
         var runnable = !readOnly && TASK_RUNNABLE_STATUSES[task.status];
         var stoppable = !readOnly && TASK_STOPPABLE_STATUSES[task.status];
         li.innerHTML =
+          '<button class="task-move-btn" aria-label="Move to another board">' + moveIcon() + "</button>" +
           '<button class="task-check" aria-label="Mark task done">' + checkIcon() + "</button>" +
           '<span class="task-text" spellcheck="false"></span>' +
           badge +
@@ -167,10 +173,14 @@
 
         li.addEventListener("click", function(e){
           if(readOnly) return;
-          if(e.target.closest(".task-check, .task-run-btn, .task-stop-btn, .task-edit-btn, .task-del, a")) return;
+          if(li.__dragMoved) return;
+          if(e.target.closest(".task-check, .task-run-btn, .task-stop-btn, .task-edit-btn, .task-del, .task-move-btn, .task-move-pop, a")) return;
           if(textEl.isContentEditable) return;
           window.BoardTaskDetail.open(board.id, task);
         });
+        var moveBtn = li.querySelector(".task-move-btn");
+        window.BoardTaskMove.wire(moveBtn, li, ctx, task);
+        window.BoardTaskDrag.wire(moveBtn, li, ctx, task);
 
         li.querySelector(".task-del").disabled = readOnly;
         li.querySelector(".task-del").addEventListener("pointerdown", function(e){ e.stopPropagation(); });

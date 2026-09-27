@@ -24,6 +24,7 @@ from ..services.chats_service import text_message
 from . import subagent, tools, tracing
 from .conversation import assistant_turn, build_task_system_prompt, split_response, to_anthropic_messages, tool_result_turn
 from .enforcement import check_budget
+from .events import events
 from .pending_messages import (
     action_request_message as _action_request_message,
     clarification_request_message as _clarification_request_message,
@@ -147,7 +148,11 @@ async def run_task_step(
         await check_budget(agent_id, board_id)
         call_started = time.monotonic()
         # Streamed rather than a plain `create()` call: a maxTokens this large
-        # is enough to risk an HTTP timeout on a buffered response.
+        # is enough to risk an HTTP timeout on a buffered response. The
+        # text_stream is also re-published live (see `events`) so an open
+        # Task Chat tab can type the reply out token-by-token instead of
+        # only seeing it once this round finishes and persists.
+        await events.publish(board_id, {"taskId": task["id"], "type": "chat_stream_start"})
         async with client.messages.stream(
             model=model_config["model"],
             max_tokens=model_config["maxTokens"],
@@ -155,7 +160,10 @@ async def run_task_step(
             messages=anthropic_messages,
             tools=tools.anthropic_tool_defs(model_config["model"], model_config["webSearchEnabled"]),
         ) as stream:
+            async for delta in stream.text_stream:
+                await events.publish(board_id, {"taskId": task["id"], "type": "chat_delta", "delta": delta})
             response = await stream.get_final_message()
+        await events.publish(board_id, {"taskId": task["id"], "type": "chat_stream_end"})
         latency_ms = (time.monotonic() - call_started) * 1000
         text, tool_use = split_response(response)
 

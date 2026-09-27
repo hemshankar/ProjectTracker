@@ -26,6 +26,10 @@ class TaskUpdate(BaseModel):
     done: Optional[bool] = None
 
 
+class TaskMoveIn(BaseModel):
+    targetBoardId: str
+
+
 class BoardCreate(BaseModel):
     agentId: str
     id: Optional[str] = None

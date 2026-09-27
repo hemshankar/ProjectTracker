@@ -6,12 +6,21 @@
   var apiPatch = window.BoardApi.apiPatch;
   var API = window.BoardApi.API;
   var findBoard = window.BoardState.findBoard;
+  var findTask = window.BoardState.findTask;
   var setModalTitle = window.BoardUtil.setModalTitle;
   var hueValue = window.BoardUtil.hueValue;
   var closeAllPopovers = window.BoardUtil.closeAllPopovers;
 
+  // Tasks whose chat has never produced a message yet don't clutter the tab
+  // strip — but a task that's actively suspended/running earns a tab even
+  // before its first message lands (e.g. right as a run claims it).
+  var ACTIVE_TASK_TAB_STATUSES = {
+    running: 1, awaiting_approval: 1, awaiting_reply: 1, awaiting_clarification: 1, manual: 1
+  };
+
   var chatModal = document.getElementById("chat-modal");
   var chatModalTitle = document.getElementById("chat-modal-title");
+  var chatModalSubtitle = document.getElementById("chat-modal-subtitle");
   var chatModalDot = document.getElementById("chat-modal-dot");
   var chatModalClose = document.getElementById("chat-modal-close");
   var chatModalBody = document.getElementById("chat-modal-body");
@@ -22,14 +31,25 @@
   var chatHistoryAnchor = document.getElementById("chat-history-anchor");
   var chatHistoryBtn = document.getElementById("chat-history-btn");
 
+  var boardChatTabs = document.getElementById("board-chat-tabs");
+  var boardChatTabBoard = document.getElementById("board-chat-tab-board");
+  var boardChatMoreAnchor = document.getElementById("board-chat-more-anchor");
+  var boardChatMoreBtn = document.getElementById("board-chat-more-btn");
+  var taskChatSubtabs = document.getElementById("task-chat-subtabs");
+  var taskDetailRunBtn = document.getElementById("task-detail-run-btn");
+  var taskDetailStopBtn = document.getElementById("task-detail-stop-btn");
+
   var chatBoardId = null;
   var chatAbortController = null;
+  var activeTab = "board"; // "board" | a task id
+  var extraOpenTaskIds = []; // task tabs opened this modal session via the "+" picker or the task list
 
   function abortActiveChatStream(){
     if(chatAbortController){ chatAbortController.abort(); chatAbortController = null; }
   }
 
   function setChatBusy(busy){
+    if(activeTab !== "board") return;
     chatSendBtn.textContent = busy ? "Stop" : "Send";
     chatTextarea.disabled = busy;
   }
@@ -90,7 +110,7 @@
     if(!board) return;
     var list = pop.querySelector(".chat-history-list");
     list.innerHTML = "";
-    var sorted = (board.chats || []).slice().sort(function(a, b){ return b.createdAt - a.createdAt; });
+    var sorted = (board.chats || []).filter(function(c){ return !c.taskId; }).slice().sort(function(a, b){ return b.createdAt - a.createdAt; });
     sorted.forEach(function(chat){ list.appendChild(buildChatHistoryItem(board, chat)); });
   }
 
@@ -100,9 +120,9 @@
       var data = await apiGet("/boards/" + board.id + "/chats");
       board.chats = data.chats || [];
       board.activeChatId = data.activeChatId;
-      if(!board.chats.length){
+      if(!(board.chats || []).some(function(c){ return !c.taskId; })){
         var chat = await apiPost("/boards/" + board.id + "/chats");
-        board.chats = [chat];
+        board.chats.push(chat);
         board.activeChatId = chat.id;
       }
       board._chatsLoaded = true;
@@ -113,7 +133,7 @@
 
   async function startNewChat(boardId){
     var board = findBoard(boardId);
-    if(!board) return;
+    if(!board || activeTab !== "board") return;
     abortActiveChatStream();
     var current = (board.chats || []).find(function(c){ return c.id === board.activeChatId; });
     if(!current || current.messages.length){
@@ -141,30 +161,213 @@
     renderChatHistoryPop();
   }
 
+  // ---------------- tab strip (Board + one per task with activity) ----------------
+
+  function computeVisibleTaskIds(board){
+    var chatsByTask = {};
+    (board.chats || []).forEach(function(c){ if(c.taskId) chatsByTask[c.taskId] = c; });
+    var ids = (board.tasks || []).filter(function(t){
+      var chat = chatsByTask[t.id];
+      return (chat && chat.messages && chat.messages.length) || ACTIVE_TASK_TAB_STATUSES[t.status];
+    }).map(function(t){ return t.id; });
+    extraOpenTaskIds.forEach(function(id){
+      if(ids.indexOf(id) === -1 && findTask(board, id)) ids.push(id);
+    });
+    return ids;
+  }
+
+  function buildTaskTabLabel(task){
+    var text = (task.text || "Task").trim();
+    return text.length > 22 ? text.slice(0, 22) + "…" : text;
+  }
+
+  function renderTabStrip(){
+    var board = findBoard(chatBoardId);
+    if(!board) return;
+    Array.prototype.slice.call(boardChatTabs.querySelectorAll(".board-chat-task-tab")).forEach(function(btn){ btn.remove(); });
+    var ids = computeVisibleTaskIds(board);
+    ids.forEach(function(taskId){
+      var task = findTask(board, taskId);
+      if(!task) return;
+      var btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "admin-console-tab board-chat-task-tab" + (activeTab === taskId ? " active" : "");
+      btn.setAttribute("role", "tab");
+      btn.setAttribute("aria-selected", activeTab === taskId ? "true" : "false");
+      btn.title = task.text || "Task";
+      btn.textContent = buildTaskTabLabel(task);
+      btn.addEventListener("click", function(){ activateTab(taskId); });
+      boardChatTabs.insertBefore(btn, boardChatMoreAnchor);
+    });
+    boardChatTabBoard.classList.toggle("active", activeTab === "board");
+    boardChatTabBoard.setAttribute("aria-selected", activeTab === "board" ? "true" : "false");
+
+    // Nothing left to open from "+ Chat" once every task already has a
+    // visible tab — hide it instead of showing an always-empty picker.
+    var remainingCount = (board.tasks || []).filter(function(t){ return ids.indexOf(t.id) === -1; }).length;
+    boardChatMoreAnchor.hidden = remainingCount === 0;
+    if(boardChatMoreAnchor.hidden){
+      var openPop = document.querySelector(".board-chat-more-pop");
+      if(openPop) openPop.remove();
+    }
+  }
+
+  function refreshTabsIfOpen(boardId){
+    if(chatBoardId !== boardId || chatModal.hidden) return;
+    renderTabStrip();
+  }
+
+  // Popovers elsewhere in the app live inside a `position:relative` anchor
+  // and just use `top`/`right` — fine near the modal header, but the "+
+  // Chat" anchor sits inside the tab strip, and `.chat-modal-dialog` clips
+  // overflow, so that CSS-only positioning could get cut off. This instead
+  // measures the anchor and places the popover with `position:fixed` on
+  // `document.body`, clamped to the viewport, so it's never clipped.
+  function positionFloatingPopover(pop, anchorEl){
+    var margin = 8;
+    var rect = anchorEl.getBoundingClientRect();
+    var popRect = pop.getBoundingClientRect();
+    var left = Math.min(rect.right - popRect.width, window.innerWidth - popRect.width - margin);
+    left = Math.max(margin, left);
+    var top = rect.bottom + 6;
+    if(top + popRect.height > window.innerHeight - margin){
+      top = Math.max(margin, rect.top - popRect.height - 6);
+    }
+    pop.style.position = "fixed";
+    pop.style.top = top + "px";
+    pop.style.left = left + "px";
+    pop.style.right = "auto";
+    pop.style.zIndex = "2100";
+  }
+
+  function renderMorePop(pop){
+    var board = findBoard(chatBoardId);
+    if(!board) return;
+    var list = pop.querySelector(".chat-history-list");
+    list.innerHTML = "";
+    var visible = computeVisibleTaskIds(board);
+    var remaining = (board.tasks || []).filter(function(t){ return visible.indexOf(t.id) === -1; });
+    if(!remaining.length){
+      var empty = document.createElement("li");
+      empty.className = "chat-history-empty";
+      empty.textContent = "No other tasks on this board.";
+      list.appendChild(empty);
+      return;
+    }
+    remaining.forEach(function(task){
+      var li = document.createElement("li");
+      var btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "chat-history-item";
+      var snippetEl = document.createElement("span");
+      snippetEl.className = "snippet";
+      snippetEl.textContent = task.text || "Task";
+      btn.appendChild(snippetEl);
+      btn.addEventListener("pointerdown", function(e){ e.stopPropagation(); });
+      btn.addEventListener("click", function(e){
+        e.stopPropagation();
+        closeAllPopovers();
+        openTaskTab(task);
+      });
+      li.appendChild(btn);
+      list.appendChild(li);
+    });
+  }
+
+  function openTaskTab(task){
+    if(extraOpenTaskIds.indexOf(task.id) === -1) extraOpenTaskIds.push(task.id);
+    renderTabStrip();
+    activateTab(task.id);
+  }
+
+  function updateTaskTabHeader(board, task){
+    if(activeTab !== task.id) return;
+    setModalTitle(chatModalTitle, task.text || "Task");
+    chatModalSubtitle.textContent = task.status ? ("Status: " + task.status) : "";
+  }
+
+  function activateTab(name){
+    var board = findBoard(chatBoardId);
+    if(!board) return;
+    var leavingTask = activeTab !== "board" ? activeTab : null;
+    var task = name !== "board" ? findTask(board, name) : null;
+    if(name !== "board" && !task){
+      name = "board"; // task no longer exists (e.g. deleted) — fall back
+    }
+
+    if(name === "board"){
+      if(leavingTask && window.BoardTaskDetail) window.BoardTaskDetail.deactivate();
+      activeTab = "board";
+      taskChatSubtabs.hidden = true;
+      taskDetailRunBtn.hidden = true;
+      taskDetailStopBtn.hidden = true;
+      chatModalBody.hidden = false;
+      document.getElementById("task-detail-activity-body").hidden = true;
+      chatForm.hidden = false;
+      chatTextarea.placeholder = "Ask about this board…";
+      setModalTitle(chatModalTitle, board.title || "Untitled board");
+      chatModalSubtitle.textContent = "Scoped to this board — remembers this conversation";
+      chatModalDot.style.background = hueValue(board.color);
+      chatModalDot.hidden = false;
+      setChatBusy(!!chatAbortController);
+      renderChatMessages();
+    } else {
+      activeTab = name;
+      chatModalDot.hidden = true;
+      taskChatSubtabs.hidden = false;
+      chatForm.hidden = false;
+      chatTextarea.placeholder = "Message about this task…";
+      updateTaskTabHeader(board, task);
+      chatSendBtn.textContent = "Send";
+      chatTextarea.disabled = false;
+      if(window.BoardTaskDetail) window.BoardTaskDetail.activate(chatBoardId, task);
+    }
+    renderTabStrip();
+  }
+
   async function openChatModal(boardId){
     var board = findBoard(boardId);
     if(!board) return;
-    if(chatBoardId !== boardId) abortActiveChatStream();
+    if(chatBoardId !== boardId){
+      abortActiveChatStream();
+      extraOpenTaskIds = [];
+    }
     chatBoardId = boardId;
-    setModalTitle(chatModalTitle, board.title || "Untitled board");
-    chatModalDot.style.background = hueValue(board.color);
     chatModal.hidden = false;
     closeAllPopovers();
-    setChatBusy(!!chatAbortController);
     chatModalBody.innerHTML = '<div class="chat-empty">Loading&hellip;</div>';
     await ensureChatsLoaded(board);
     if(chatBoardId !== boardId) return;
-    renderChatMessages();
+    activateTab("board");
     chatTextarea.value = "";
     autoSizeChatTextarea();
     chatTextarea.focus();
   }
 
+  async function openTask(boardId, task){
+    var board = findBoard(boardId);
+    if(!board) return;
+    if(chatBoardId !== boardId){
+      abortActiveChatStream();
+      extraOpenTaskIds = [];
+    }
+    chatBoardId = boardId;
+    chatModal.hidden = false;
+    closeAllPopovers();
+    await ensureChatsLoaded(board);
+    if(chatBoardId !== boardId) return;
+    openTaskTab(task);
+    chatTextarea.value = "";
+  }
+
   function closeChatModal(){
     abortActiveChatStream();
+    if(activeTab !== "board" && window.BoardTaskDetail) window.BoardTaskDetail.deactivate();
     closeAllPopovers();
     chatModal.hidden = true;
     chatBoardId = null;
+    activeTab = "board";
+    extraOpenTaskIds = [];
   }
 
   async function sendChatMessage(){
@@ -240,8 +443,12 @@
     });
     chatForm.addEventListener("submit", function(e){
       e.preventDefault();
-      if(chatAbortController){ chatAbortController.abort(); return; }
-      sendChatMessage();
+      if(activeTab === "board"){
+        if(chatAbortController){ chatAbortController.abort(); return; }
+        sendChatMessage();
+      } else if(window.BoardTaskDetail){
+        window.BoardTaskDetail.sendMessage();
+      }
     });
     chatTextarea.addEventListener("keydown", function(e){
       if(e.key === "Enter" && !e.shiftKey){
@@ -256,12 +463,13 @@
     chatNewBtn.addEventListener("click", function(e){
       e.stopPropagation();
       closeAllPopovers();
-      if(chatBoardId) startNewChat(chatBoardId);
+      if(chatBoardId && activeTab === "board") startNewChat(chatBoardId);
     });
 
     chatHistoryBtn.addEventListener("pointerdown", function(e){ e.stopPropagation(); });
     chatHistoryBtn.addEventListener("click", function(e){
       e.stopPropagation();
+      if(activeTab !== "board") return;
       var existing = chatHistoryAnchor.querySelector(".chat-history-pop");
       if(existing){ existing.remove(); return; }
       closeAllPopovers();
@@ -271,13 +479,34 @@
       chatHistoryAnchor.appendChild(pop);
       renderChatHistoryPop();
     });
+
+    boardChatTabBoard.addEventListener("click", function(){ activateTab("board"); });
+
+    boardChatMoreBtn.addEventListener("pointerdown", function(e){ e.stopPropagation(); });
+    boardChatMoreBtn.addEventListener("click", function(e){
+      e.stopPropagation();
+      var existing = document.querySelector(".board-chat-more-pop");
+      if(existing){ existing.remove(); return; }
+      closeAllPopovers();
+      var pop = document.createElement("div");
+      pop.className = "chat-history-pop popover board-chat-more-pop";
+      pop.innerHTML = '<div class="completed-pop-header"><span>Open a task&rsquo;s chat</span></div><ul class="chat-history-list"></ul>';
+      document.body.appendChild(pop);
+      renderMorePop(pop);
+      positionFloatingPopover(pop, boardChatMoreBtn);
+    });
   }
 
   window.BoardChat = {
     open: openChatModal,
+    openTask: openTask,
     init: wireChatModal,
     notifyBoardUpdated: function(boardId){
-      if(chatBoardId === boardId) renderChatMessages();
-    }
+      if(chatBoardId !== boardId) return;
+      if(activeTab === "board") renderChatMessages();
+      else if(window.BoardTaskDetail) window.BoardTaskDetail.refreshIfOpen(boardId, activeTab);
+    },
+    refreshTabsIfOpen: refreshTabsIfOpen,
+    updateTaskTabHeader: updateTaskTabHeader
   };
 })();

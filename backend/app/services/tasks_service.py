@@ -18,6 +18,12 @@ _TERMINAL_BOARD_STATUSES = ("done", "failed", "stopped", "blocked")
 # completed task isn't what this action is for; un-check it first).
 TASK_RUNNABLE_STATUSES = ("idle", "failed", "stopped", "blocked")
 
+# A task can be dragged to another board only while nothing is actively
+# driving it — every in-flight or human-wait status (queued/running/
+# awaiting_*/manual) is tied to this board's chat/context, so it must finish
+# or be stopped here first.
+TASK_MOVABLE_STATUSES = ("idle", "done", "stopped", "failed", "blocked")
+
 
 async def _get_board(board_id: str) -> dict:
     doc = await boards_collection.find_one({"_id": board_id})
@@ -120,6 +126,75 @@ async def delete_task(board_id: str, task_id: str, actor_id: str) -> None:
         actor_id=actor_id,
         before=before,
         after=None,
+    )
+
+
+async def move_task(board_id: str, task_id: str, target_board_id: str, actor_id: str) -> None:
+    """Moves one task from `board_id` into `target_board_id`'s `tasks[]` —
+    the drag-a-task-onto-another-board-card gesture. Caller (the router) has
+    already checked editor access on both boards and that they share an
+    Agent; this only re-validates the task itself and does the actual
+    pull/push, since neither Mongo operation is transactional here (see
+    `task_state.transition_task_status` for why every board doc write in
+    this codebase is single-document compare-and-swap rather than a real
+    transaction) — a crash between the two would leave the task on the
+    source board rather than duplicating or losing it.
+    """
+    if target_board_id == board_id:
+        raise HTTPException(status_code=400, detail="Task is already on this board")
+
+    board = await _get_board(board_id)
+    task = _find_task(board, task_id)
+    if task.get("status") not in TASK_MOVABLE_STATUSES:
+        raise HTTPException(
+            status_code=409, detail=f"Task can't be moved while '{task.get('status')}'"
+        )
+
+    target = await _get_board(target_board_id)
+    if target.get("agentId") != board.get("agentId"):
+        raise HTTPException(status_code=400, detail="Can only move tasks between boards of the same Agent")
+
+    pulled = await boards_collection.find_one_and_update(
+        {
+            "_id": board_id,
+            "tasks": {"$elemMatch": {"id": task_id, "status": {"$in": list(TASK_MOVABLE_STATUSES)}}},
+        },
+        {"$pull": {"tasks": {"id": task_id}}, "$set": {"updatedAt": now_ms()}},
+    )
+    if pulled is None:
+        raise HTTPException(status_code=409, detail="Task changed status before it could be moved")
+
+    await boards_collection.update_one(
+        {"_id": target_board_id},
+        {"$push": {"tasks": task}, "$set": {"updatedAt": now_ms()}},
+    )
+
+    await glow.refresh_glow(board_id)
+    if task.get("status") == "idle":
+        await reopen_board_if_terminal(target_board_id, target)
+    await glow.refresh_glow(target_board_id)
+
+    await audit_service.write_audit(
+        agent_id=board.get("agentId"),
+        board_id=board_id,
+        task_id=task_id,
+        entity_type="task",
+        action="delete",
+        actor_type="human",
+        actor_id=actor_id,
+        before=task,
+        after=None,
+    )
+    await audit_service.write_audit(
+        agent_id=target.get("agentId"),
+        board_id=target_board_id,
+        task_id=task_id,
+        entity_type="task",
+        action="create",
+        actor_type="human",
+        actor_id=actor_id,
+        before=None,
+        after=task,
     )
 
 

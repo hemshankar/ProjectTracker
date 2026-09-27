@@ -93,7 +93,7 @@
   });
 
   document.addEventListener("pointerdown", function(e){
-    if(e.target.closest(".popover, .color-btn, .delete-btn, #clear-btn")) return;
+    if(e.target.closest(".popover, .color-btn, .delete-btn, .task-move-btn, #clear-btn")) return;
     closeAllPopovers();
   });
 

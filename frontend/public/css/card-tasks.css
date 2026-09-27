@@ -178,6 +178,94 @@
   flex:none;
 }
 
+.task{ position:relative; }
+.task-move-btn{
+  flex:none;
+  width:18px; height:18px;
+  margin-top:2px;
+  border:none; background:transparent;
+  color:var(--ink-faint);
+  border-radius:5px;
+  cursor:pointer;
+  display:flex; align-items:center; justify-content:center;
+  padding:0;
+}
+.task-move-btn svg{ width:13px; height:13px; }
+.task-move-btn:hover{ color:var(--accent); background:var(--surface-2); }
+.task-move-btn:focus-visible{ outline:2px solid var(--accent); }
+.task-move-btn:disabled{ opacity:0.35; cursor:default; }
+
+.task-move-pop{
+  position:absolute;
+  top:26px; left:4px;
+  width:200px;
+  background:var(--surface);
+  border:1px solid var(--border);
+  border-radius:8px;
+  box-shadow:0 8px 20px var(--shadow);
+  padding:6px;
+  z-index:60;
+}
+.task-move-empty{
+  padding:6px 8px;
+  font-size:12px;
+  color:var(--ink-faint);
+}
+.task-move-list{
+  list-style:none;
+  margin:0;
+  padding:0;
+  max-height:220px;
+  overflow-y:auto;
+  display:flex;
+  flex-direction:column;
+  gap:2px;
+}
+.task-move-item{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  padding:6px 8px;
+  border-radius:6px;
+  cursor:pointer;
+}
+.task-move-item:hover{ background:var(--surface-2); }
+.task-move-item .dot{
+  width:9px; height:9px;
+  border-radius:50%;
+  flex:none;
+}
+.task-move-item .title{
+  flex:1;
+  font-size:12.5px;
+  color:var(--ink);
+  word-break:break-word;
+}
+
+.task-dragging{ opacity:0.4; }
+.task-drag-ghost{
+  position:fixed;
+  top:0; left:0;
+  transform:translate(-50%, -50%) rotate(-1.5deg);
+  pointer-events:none;
+  z-index:9999;
+  background:var(--surface);
+  border:1px solid var(--border);
+  border-radius:6px;
+  box-shadow:0 14px 32px var(--shadow-drag);
+  opacity:0.92;
+}
+.task-drag-ghost .task-del,
+.task-drag-ghost .task-move-btn,
+.task-drag-ghost .task-edit-btn,
+.task-drag-ghost .task-run-btn,
+.task-drag-ghost .task-stop-btn{ opacity:0; }
+
+.card.task-drop-target{
+  outline:2px dashed var(--card-hue);
+  outline-offset:2px;
+}
+
 .resize-handle{
   position:absolute;
   right:2px; bottom:2px;

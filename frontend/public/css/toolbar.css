@@ -33,6 +33,7 @@
 .count-pill{
   font-family:'IBM Plex Mono', monospace;
   font-size:12px;
+  display:none;
   color:var(--ink-soft);
   background:var(--surface-2);
   border:1px solid var(--border);

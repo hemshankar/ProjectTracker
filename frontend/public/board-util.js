@@ -99,6 +99,12 @@
   function stopIcon(){
     return '<svg viewBox="0 0 20 20" fill="currentColor" stroke="none"><rect x="5.5" y="5.5" width="9" height="9" rx="1.5"/></svg>';
   }
+  function moveIcon(){
+    return '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">' +
+      '<path d="M10 3v14M3 10h14"/>' +
+      '<path d="M10 3 7.8 5.2M10 3l2.2 2.2M10 17l-2.2-2.2M10 17l2.2-2.2M3 10l2.2-2.2M3 10l2.2 2.2M17 10l-2.2-2.2M17 10l-2.2 2.2"/>' +
+      "</svg>";
+  }
 
   window.BoardUtil = {
     CANVAS_W: CANVAS_W, CANVAS_H: CANVAS_H,
@@ -115,6 +121,7 @@
     checkIcon: checkIcon,
     pencilIcon: pencilIcon,
     runIcon: runIcon,
-    stopIcon: stopIcon
+    stopIcon: stopIcon,
+    moveIcon: moveIcon
   };
 })();

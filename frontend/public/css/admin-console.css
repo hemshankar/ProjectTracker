@@ -20,6 +20,50 @@
 .admin-console-tab.active{ color:var(--accent); border-bottom-color:var(--accent); }
 .admin-console-tab:focus-visible{ outline:2px solid var(--accent); outline-offset:-2px; }
 
+/* ---------- Board Chat modal: Board tab + one tab per active task ---------- */
+.board-chat-tabs{
+  flex-wrap:wrap;
+  align-items:center;
+}
+.board-chat-task-tab{
+  max-width:160px;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.board-chat-more-anchor{ margin-left:auto; }
+.board-chat-more-btn{
+  padding:6px 10px;
+  border:1px dashed var(--border);
+  border-radius:7px;
+  background:none;
+  color:var(--ink-soft);
+  font-size:12px;
+  font-weight:600;
+  cursor:pointer;
+}
+.board-chat-more-btn:hover{ color:var(--ink); border-color:var(--ink-soft); }
+.task-chat-subtabs{
+  padding:0 20px;
+  background:var(--surface-2);
+}
+.task-chat-subtabs .admin-console-tab{ font-size:12px; padding:7px 10px; }
+
+/* Live-typing bubble for an in-flight task run — a blinking caret marks it
+   as provisional until the next refresh reconciles it with what actually
+   got persisted. */
+.chat-bubble-streaming::after{
+  content:"";
+  display:inline-block;
+  width:7px; height:1em;
+  margin-left:2px;
+  vertical-align:text-bottom;
+  background:currentColor;
+  opacity:0.6;
+  animation:chat-caret-blink 1s step-start infinite;
+}
+@keyframes chat-caret-blink{ 50%{ opacity:0; } }
+
 .activity-filters{
   display:flex;
   align-items:center;

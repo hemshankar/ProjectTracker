@@ -19,13 +19,23 @@ AGENT_ID = "test-agent-stopping"
 
 class _HangingStream:
     """Never actually returns a response — proves cancellation interrupts
-    the in-flight model call rather than waiting for it to finish."""
+    the in-flight model call rather than waiting for it to finish. Hangs on
+    `text_stream` iteration too, since `agent_service.run_task_step` now
+    drains that before calling `get_final_message()`."""
 
     async def __aenter__(self):
         return self
 
     async def __aexit__(self, *exc):
         return False
+
+    async def _hang(self):
+        await asyncio.Event().wait()
+        yield ""  # pragma: no cover - never reached
+
+    @property
+    def text_stream(self):
+        return self._hang()
 
     async def get_final_message(self):
         await asyncio.Event().wait()

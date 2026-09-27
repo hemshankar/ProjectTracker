@@ -202,10 +202,13 @@
     boardChatTabBoard.classList.toggle("active", activeTab === "board");
     boardChatTabBoard.setAttribute("aria-selected", activeTab === "board" ? "true" : "false");
 
-    // Nothing left to open from "+ Chat" once every task already has a
-    // visible tab — hide it instead of showing an always-empty picker.
+    // "+ Chat" is an overflow picker for tasks not already shown as a tab —
+    // it hides once every task already has one (nothing left to reach), and
+    // also while none has one yet (no chats have started anywhere, so
+    // there's nothing to reach "the rest" of; starting a task's first chat
+    // happens from the task list instead).
     var remainingCount = (board.tasks || []).filter(function(t){ return ids.indexOf(t.id) === -1; }).length;
-    boardChatMoreAnchor.hidden = remainingCount === 0;
+    boardChatMoreAnchor.hidden = remainingCount === 0 || ids.length === 0;
     if(boardChatMoreAnchor.hidden){
       var openPop = document.querySelector(".board-chat-more-pop");
       if(openPop) openPop.remove();

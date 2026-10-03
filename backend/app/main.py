@@ -1,9 +1,12 @@
+import logging
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from . import config
 from .database import boards_collection, close_client, ensure_indexes
 from .execution.events import events
+from .integrations_client import HttpIntegrationsClient
 from .execution.glow import migrate_board_glow
 from .execution.registry import registry
 from .routers import agents, auth, board_shares, boards, chats, labels, settings, tools
@@ -50,6 +53,11 @@ async def on_startup():
     # Catch-all sweep for any task_runs doc (including sub-agent runs) that
     # reconcile_interrupted_runs' board/task walk doesn't reach directly.
     await reconcile_orphaned_task_runs()
+    # Connectivity check only — never blocks startup if the service is down.
+    ok = await HttpIntegrationsClient().ping()
+    logging.getLogger("uvicorn.error").info(
+        "integrations-service ping: %s", "ok" if ok else "UNREACHABLE"
+    )
 
 
 @app.on_event("shutdown")

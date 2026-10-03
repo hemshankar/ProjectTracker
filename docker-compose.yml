@@ -23,6 +23,33 @@ services:
       - "8000:8000"
     depends_on:
       - mongo
+      - integrations
+
+  integrations:
+    build: ./integrations-service
+    container_name: scatterboard-integrations
+    restart: unless-stopped
+    env_file:
+      - ./integrations-service/.env
+    volumes:
+      - ./integrations-service/app:/srv/app
+    # Docker network (http://integrations:8100) plus localhost for debugging.
+    # Only POST /webhooks/composio must be publicly reachable (tunnel in dev, e.g. ngrok -> integrations:8100).
+    # Never publish /admin beyond the machine without TLS and an authenticating proxy.
+    expose:
+      - "8100"
+    ports:
+      - "127.0.0.1:8100:8100"
+
+  integrations-admin:
+    build: ./integrations-admin
+    container_name: scatterboard-integrations-admin
+    restart: unless-stopped
+    # Localhost only. Never publish this beyond the machine without a VPN/authenticating proxy.
+    ports:
+      - "127.0.0.1:8101:80"
+    depends_on:
+      - integrations
 
   frontend:
     build: ./frontend

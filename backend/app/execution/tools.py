@@ -10,8 +10,8 @@ enforcement can both be exercised without live credentials.
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional
 
-from ..models_tools import ConnectedTokens
-from .connectors import get_connector
+from .. import integrations_client
+from ..integrations_client import IntegrationsClient, IntegrationsError
 
 
 @dataclass(frozen=True)
@@ -222,10 +222,34 @@ def describe_action(spec: ToolSpec, params: Dict[str, Any]) -> str:
     return f"Run {spec.name} with {params}"
 
 
-async def execute_tool(spec: ToolSpec, params: Dict[str, Any], tokens: Optional[ConnectedTokens]) -> str:
-    """Runs the real connector when the Agent has a connection for this
-    tool's type; otherwise falls back to the canned simulated result."""
-    if spec.tool_type is None:
+class ToolExecutionError(Exception):
+    """The gateway could not run the action (rate limited, outage, provider error)."""
+
+
+# One table maps a model-facing tool to a gateway action; a new tool type is an entry here.
+TOOL_TO_ACTION: Dict[str, str] = {
+    "send_email": "gmail.send_email",
+    "create_calendar_event": "calendar.create_event",
+    "send_slack_message": "slack.post_message",
+}
+
+
+async def execute_tool(
+    spec: ToolSpec, params: Dict[str, Any], agent_id: Optional[str], client: Optional[IntegrationsClient] = None
+) -> str:
+    """Runs the action through the integrations gateway. Falls back to the
+    canned simulated result for internal tools, calls with no Agent, tools
+    with no gateway action, and Agents that haven't connected the tool."""
+    action = TOOL_TO_ACTION.get(spec.name)
+    if spec.tool_type is None or agent_id is None or action is None:
         return spec.simulate(params)
-    connector = get_connector(spec.tool_type)
-    return await connector.execute(spec.name, params, tokens)
+    client = client or integrations_client.get_integrations_client()
+    try:
+        result = await client.execute(agent_id, spec.tool_type, action, params)
+    except IntegrationsError as exc:
+        if exc.code == "not_connected":
+            return spec.simulate(params)
+        raise ToolExecutionError(exc.message) from exc
+    if not result.ok:
+        raise ToolExecutionError(result.error or "The action failed")
+    return spec.simulate(params)

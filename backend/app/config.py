@@ -19,23 +19,6 @@ CORS_ORIGINS = [o.strip() for o in os.environ.get("CORS_ORIGINS", FRONTEND_ORIGI
 COOKIE_SECURE = os.environ.get("COOKIE_SECURE", "false").lower() == "true"
 
 
-# --- Tool connections (Phase 5) ---
-# Fernet key for encrypting tool_connections tokens at rest. In dev, derived
-# deterministically from SESSION_SECRET_KEY so nothing else has to be set;
-# set TOOL_ENCRYPTION_KEY explicitly in production.
-TOOL_ENCRYPTION_KEY = os.environ.get("TOOL_ENCRYPTION_KEY", "")
-
-# Gmail/Calendar reuse the Phase 1 Google OAuth app (GOOGLE_CLIENT_ID/SECRET)
-# with additional scopes, on their own fixed callback URL (must be registered
-# with Google separately from the login redirect URI).
-GOOGLE_TOOLS_REDIRECT_URI = os.environ.get(
-    "GOOGLE_TOOLS_REDIRECT_URI", "http://localhost:3000/api/tools/google/callback"
-)
-
-SLACK_CLIENT_ID = os.environ.get("SLACK_CLIENT_ID", "")
-SLACK_CLIENT_SECRET = os.environ.get("SLACK_CLIENT_SECRET", "")
-SLACK_REDIRECT_URI = os.environ.get("SLACK_REDIRECT_URI", "http://localhost:3000/api/tools/slack/callback")
-
 # Per-tool rate-limit defaults (token-bucket capacity per 24h window),
 # adjustable per Agent in Settings.
 DEFAULT_RATE_LIMIT_PER_DAY = {
@@ -84,3 +67,7 @@ CANVAS_W = 2600
 CANVAS_H = 1600
 MIN_W = 220
 MIN_H = 180
+
+# --- Integrations microservice (Connections Gateway) ---
+INTEGRATIONS_SERVICE_URL = os.environ.get("INTEGRATIONS_SERVICE_URL", "http://integrations:8100")
+INTERNAL_SERVICE_KEY = os.environ.get("INTERNAL_SERVICE_KEY", "")

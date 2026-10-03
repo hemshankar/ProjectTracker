@@ -15,8 +15,7 @@ from typing import Optional, Tuple
 from .. import task_state
 from ..database import boards_collection
 from ..models import board_to_json
-from ..models_tools import ConnectedTokens
-from ..services import audit_service, chats_service, lock_service, rate_limit_service, tool_connections_service
+from ..services import audit_service, chats_service, lock_service, rate_limit_service
 from . import completion, delegation, stopping, tools
 from .context import finish_task_run
 from .enforcement import wait_for_lock, wait_for_rate_limit
@@ -61,11 +60,11 @@ async def _execute_and_resume(board_id: str, chat_id: str, message_id: str, acto
     run_id = task.get("currentRunId") or task_id
     agent_id = board.get("agentId")
 
-    tokens: Optional[ConnectedTokens] = None
-    if spec is not None and spec.tool_type is not None:
-        tokens = await tool_connections_service.get_valid_tokens(agent_id, spec.tool_type)
     try:
-        result = await tools.execute_tool(spec, params, tokens) if spec else "Action completed."
+        result = await tools.execute_tool(spec, params, agent_id) if spec else "Action completed."
+    except tools.ToolExecutionError as exc:
+        # Surface the reason to the model/task instead of hanging or silently "succeeding".
+        result = f"Action failed: {exc}. Nothing was sent."
     finally:
         if spec is not None and spec.tool_type is not None and spec.resource_key:
             await lock_service.release(spec.resource_key(params), run_id)

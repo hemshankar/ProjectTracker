@@ -13,7 +13,6 @@ board_shares_collection = db["board_shares"]
 task_runs_collection = db["task_runs"]
 audit_log_collection = db["audit_log"]
 agent_settings_collection = db["agent_settings"]
-tool_connections_collection = db["tool_connections"]
 llm_calls_collection = db["llm_calls"]
 resource_locks_collection = db["resource_locks"]
 rate_limits_collection = db["rate_limits"]
@@ -36,7 +35,6 @@ async def ensure_indexes():
     await audit_log_collection.create_index([("agentId", 1), ("ts", 1)])
     await audit_log_collection.create_index([("boardId", 1), ("ts", 1)])
     await audit_log_collection.create_index([("agentId", 1), ("actorId", 1), ("ts", -1)])
-    await tool_connections_collection.create_index([("agentId", 1), ("toolType", 1)], unique=True)
     await llm_calls_collection.create_index([("boardId", 1)])
     await llm_calls_collection.create_index([("agentId", 1)])
     await llm_calls_collection.create_index([("runId", 1), ("ts", 1)])

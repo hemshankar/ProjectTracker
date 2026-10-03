@@ -71,3 +71,33 @@ MIN_H = 180
 # --- Integrations microservice (Connections Gateway) ---
 INTEGRATIONS_SERVICE_URL = os.environ.get("INTEGRATIONS_SERVICE_URL", "http://integrations:8100")
 INTERNAL_SERVICE_KEY = os.environ.get("INTERNAL_SERVICE_KEY", "")
+
+# --- Accounting microservice (usage ledger) ---
+ACCOUNTING_SERVICE_URL = os.environ.get("ACCOUNTING_SERVICE_URL", "http://accounting:8200")
+ACCOUNTING_SERVICE_KEY = os.environ.get("ACCOUNTING_SERVICE_KEY", "")
+
+# JSON map merged over the per-model price table, e.g.
+# {"claude-haiku-4-5": {"input_per_mtok": 1.0, "output_per_mtok": 5.0,
+#                       "cache_read_per_mtok": 0.1, "cache_write_per_mtok": 1.25}}
+# Invalid JSON fails startup. See pricing.py.
+PRICING_OVERRIDES_JSON = os.environ.get("PRICING_OVERRIDES_JSON", "")
+
+# --- Usage delivery (Phase 5): outbox -> accounting service, spend counters ---
+OUTBOX_BATCH_SIZE = int(os.environ.get("OUTBOX_BATCH_SIZE", "100"))
+OUTBOX_POLL_SECONDS = float(os.environ.get("OUTBOX_POLL_SECONDS", "2"))
+OUTBOX_LEASE_SECONDS = int(os.environ.get("OUTBOX_LEASE_SECONDS", "60"))
+OUTBOX_MAX_BACKOFF_SECONDS = int(os.environ.get("OUTBOX_MAX_BACKOFF_SECONDS", "300"))
+OUTBOX_DELIVERED_TTL_DAYS = int(os.environ.get("OUTBOX_DELIVERED_TTL_DAYS", "7"))
+USAGE_FALLBACK_PATH = os.environ.get("USAGE_FALLBACK_PATH", "/tmp/usage_fallback.jsonl")
+# Cutover flag: False = check_exceeded still sums llm_calls (legacy). See phase 5 doc.
+SPEND_COUNTERS_ENFORCED = os.environ.get("SPEND_COUNTERS_ENFORCED", "false").lower() in ("1", "true", "yes")
+
+# --- Reconcile & alerts (Phase 8). Set RECONCILE_ENABLED=false to stop all background checks. ---
+RECONCILE_ENABLED = os.environ.get("RECONCILE_ENABLED", "true").lower() in ("1", "true", "yes")
+RECONCILE_COMPLETENESS_INTERVAL_SECONDS = int(os.environ.get("RECONCILE_COMPLETENESS_INTERVAL_SECONDS", "3600"))
+RECONCILE_COUNTERS_INTERVAL_SECONDS = int(os.environ.get("RECONCILE_COUNTERS_INTERVAL_SECONDS", "3600"))
+RECONCILE_WINDOW_HOURS = int(os.environ.get("RECONCILE_WINDOW_HOURS", "48"))
+ALERT_OUTBOX_AGE_SECONDS = int(os.environ.get("ALERT_OUTBOX_AGE_SECONDS", "900"))
+ALERT_SERVICE_DOWN_SECONDS = int(os.environ.get("ALERT_SERVICE_DOWN_SECONDS", "300"))
+ALERT_FALLBACK_RATIO = float(os.environ.get("ALERT_FALLBACK_RATIO", "0.2"))
+ALERT_FALLBACK_MIN_EVENTS = int(os.environ.get("ALERT_FALLBACK_MIN_EVENTS", "10"))

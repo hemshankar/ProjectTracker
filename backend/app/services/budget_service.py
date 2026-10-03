@@ -5,22 +5,26 @@ detail. Checked cheapest/most-specific first, short-circuiting.
 from typing import Optional
 
 from .. import config
+from ..accounting.counters import GLOBAL_SCOPE, SpendCounters, agent_scope, board_scope
 from ..database import agent_settings_collection, boards_collection, global_settings_collection, llm_calls_collection
 from ..models import new_id, now_ms
 
 
-def usd_for_usage(input_tokens: int, output_tokens: int) -> float:
-    return (
-        input_tokens / 1_000_000 * config.ANTHROPIC_INPUT_COST_PER_MTOK
-        + output_tokens / 1_000_000 * config.ANTHROPIC_OUTPUT_COST_PER_MTOK
-    )
+_counters = SpendCounters()
 
 
 async def _sum_usd(match: dict) -> float:
+    """Legacy path (SPEND_COUNTERS_ENFORCED=false): O(n) and blind to rows the TTL purged."""
     total = 0.0
     async for doc in llm_calls_collection.find(match, {"usd": 1}):
         total += doc.get("usd", 0.0)
     return total
+
+
+async def _spent(scope: str, legacy_match: dict) -> float:
+    if config.SPEND_COUNTERS_ENFORCED:
+        return await _counters.get(scope)
+    return await _sum_usd(legacy_match)
 
 
 async def _retention_days(agent_id: Optional[str]) -> int:
@@ -33,7 +37,7 @@ async def _retention_days(agent_id: Optional[str]) -> int:
 async def record_llm_call(
     agent_id: Optional[str],
     board_id: str,
-    task_id: str,
+    task_id: Optional[str],
     run_id: Optional[str],
     usd: float,
     *,
@@ -45,10 +49,12 @@ async def record_llm_call(
     input_tokens: int = 0,
     output_tokens: int = 0,
     latency_ms: float = 0.0,
+    extra: Optional[dict] = None,
 ) -> dict:
     """Inserts one full-detail `llm_calls` row — captured by default for
     every model call, not opt-in (see Phase 8). `usd` still feeds the same
     board/Agent/global budget check below; the rest is Traces-tab detail.
+    `extra` carries the per-call accounting fields (model, cache tokens, rates, ...).
     """
     retention_days = await _retention_days(agent_id)
     doc = {
@@ -68,6 +74,7 @@ async def record_llm_call(
         "latencyMs": latency_ms,
         "ts": now_ms(),
         "expiresAt": now_ms() + retention_days * 86_400_000,
+        **(extra or {}),
     }
     await llm_calls_collection.insert_one(doc)
     return doc
@@ -78,18 +85,18 @@ async def check_exceeded(agent_id: Optional[str], board_id: str) -> Optional[str
     is already at or over its limit, else None. Cheapest check first."""
     board = await boards_collection.find_one({"_id": board_id}, {"budgetCapUsd": 1})
     board_cap = (board or {}).get("budgetCapUsd")
-    if board_cap is not None and await _sum_usd({"boardId": board_id}) >= board_cap:
+    if board_cap is not None and await _spent(board_scope(board_id), {"boardId": board_id}) >= board_cap:
         return "budget_exceeded"
 
     if agent_id is not None:
         agent_settings = await agent_settings_collection.find_one({"_id": agent_id}, {"budget": 1})
         agent_cap = (agent_settings or {}).get("budget", {}).get("capUsd")
-        if agent_cap is not None and await _sum_usd({"agentId": agent_id}) >= agent_cap:
+        if agent_cap is not None and await _spent(agent_scope(agent_id), {"agentId": agent_id}) >= agent_cap:
             return "budget_exceeded"
 
     global_doc = await global_settings_collection.find_one({"_id": "global"}, {"budgetCapUsd": 1})
     global_cap = (global_doc or {}).get("budgetCapUsd", config.GLOBAL_BUDGET_CAP_USD)
-    if global_cap is not None and await _sum_usd({}) >= global_cap:
+    if global_cap is not None and await _spent(GLOBAL_SCOPE, {}) >= global_cap:
         return "budget_exceeded"
 
     return None

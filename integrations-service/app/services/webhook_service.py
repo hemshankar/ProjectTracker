@@ -13,7 +13,6 @@ _KIND_TO_STATUS = {"connected": CONNECTED, "expired": EXPIRED, "removed": NOT_CO
 class WebhookService:
     def __init__(self, db, providers: ProviderService, connections: ConnectionService, clock=time.time):
         self._events = db["webhook_events"]
-        self._col = db["connections"]
         self._providers = providers
         self._connections = connections
         self._clock = clock
@@ -31,14 +30,18 @@ class WebhookService:
             await self._events.insert_one({"eventId": event.event_id, "receivedAt": _utcnow(self._clock())})
         except DuplicateKeyError:
             return "duplicate"
-        existing = await self._col.find_one({"backendConnectionId": event.backend_connection_id})
-        agent_id = (existing or {}).get("agentId") or event.user_id
-        tool_type = (existing or {}).get("toolType") or await self._tool_type_for(event.toolkit_slug)
-        if not agent_id or not tool_type:
-            return "unmatched"
+        store = self._connections.store
         info = ConnectionInfo(_KIND_TO_STATUS[event.kind], event.backend_connection_id)
-        await self._connections.record_state(agent_id, tool_type, backend_name, info)
-        self._connections.invalidate(agent_id, tool_type)
+        record = await store.find_by_backend_connection(event.backend_connection_id)
+        if record is None and event.user_id:
+            tool_type = await self._tool_type_for(event.toolkit_slug)
+            record = await store.find_by_backend(event.user_id, tool_type) if tool_type else None
+            if record is None and tool_type and ":" not in event.user_id:
+                await self._connections.ensure_legacy(event.user_id, tool_type, backend_name, info)
+                return "processed"
+        if record is None:
+            return "unmatched"
+        await self._connections.record_state(record, backend_name, info)
         return "processed"
 
     async def _tool_type_for(self, slug):

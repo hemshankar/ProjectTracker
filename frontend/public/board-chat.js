@@ -305,7 +305,7 @@
       taskDetailRunBtn.hidden = true;
       taskDetailStopBtn.hidden = true;
       chatModalBody.hidden = false;
-      document.getElementById("task-detail-activity-body").hidden = true;
+      if(window.BoardTaskTabs) window.BoardTaskTabs.hideTaskOnlyPanels();
       chatForm.hidden = false;
       chatTextarea.placeholder = "Ask about this board…";
       setModalTitle(chatModalTitle, board.title || "Untitled board");

@@ -51,6 +51,25 @@ services:
     depends_on:
       - integrations
 
+  accounting:
+    build: ./accounting-service
+    container_name: scatterboard-accounting
+    restart: unless-stopped
+    env_file:
+      - ./accounting-service/.env
+    environment:
+      MONGO_URI: mongodb://mongo:27017        # point at a dedicated instance in prod
+      MONGO_DB_NAME: scatterboard_accounting
+    volumes:
+      - ./accounting-service/app:/srv/app
+    # Internal-only: loopback for debugging, never public.
+    expose:
+      - "8200"
+    ports:
+      - "127.0.0.1:8200:8200"
+    depends_on:
+      - mongo
+
   frontend:
     build: ./frontend
     container_name: scatterboard-frontend

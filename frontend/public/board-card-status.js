@@ -73,7 +73,12 @@
 
     window.BoardSocket.on(board.id, function(data){
       if(data.type === "chat_delta" || data.type === "chat_stream_start" || data.type === "chat_stream_end"){
+        if(data.type === "chat_stream_end" && window.UsageBadges) window.UsageBadges.onChatEnd(board.id);
         if(data.taskId && window.BoardTaskDetail) window.BoardTaskDetail.onStreamEvent(board.id, data);
+        return;
+      }
+      if(data.type === "task_field_updated"){
+        window.BoardTaskFields.onRemoteEvent(board, data);
         return;
       }
       if(data.taskId){
@@ -96,6 +101,9 @@
         }
         if(data.llmCall && window.AdminConsole){
           window.AdminConsole.onLiveLlmCall(data.boardId, data.llmCall);
+        }
+        if(data.llmCall && window.UsageBadges){
+          window.UsageBadges.onLlmCall(data.boardId, data.llmCall);
         }
         updateRunUI();
       }

@@ -106,7 +106,7 @@
 
     var desc = document.createElement("div");
     desc.className = "action-card-desc";
-    desc.textContent = "Delegated to " + (payload.targetAgentName || "another Agent") + ": " + (payload.request || "");
+    desc.textContent = "Delegated to " + (payload.targetAgentName || "another Workspace") + ": " + (payload.request || "");
     card.appendChild(desc);
 
     var status = document.createElement("div");
@@ -115,7 +115,7 @@
       status.textContent = "Resolved" + (payload.result ? " — " + payload.result : "");
     } else {
       status.className = "action-card-status action-status-pending";
-      status.textContent = "Waiting on delegated Agent…";
+      status.textContent = "Waiting on delegated Workspace…";
     }
     card.appendChild(status);
 

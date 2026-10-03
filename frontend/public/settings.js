@@ -29,6 +29,8 @@
   var maxToolRoundsInput = document.getElementById("settings-max-tool-rounds");
   var maxToolRoundsCeiling = 100;
   var llmRetentionInput = document.getElementById("settings-llm-retention-days");
+  var showBoardCostsInput = document.getElementById("settings-show-board-costs");
+  var showTaskCostsInput = document.getElementById("settings-show-task-costs");
   var llmRetentionCeiling = 365;
 
   var agentIdentityForm = document.getElementById("agent-identity-form");
@@ -43,12 +45,14 @@
   var TAB_PANELS = {
     config: document.getElementById("admin-tab-config"),
     activity: document.getElementById("admin-tab-activity"),
-    traces: document.getElementById("admin-tab-traces")
+    traces: document.getElementById("admin-tab-traces"),
+    usage: document.getElementById("admin-tab-usage")
   };
   var TAB_BUTTONS = {
     config: document.getElementById("admin-tab-btn-config"),
     activity: document.getElementById("admin-tab-btn-activity"),
-    traces: document.getElementById("admin-tab-btn-traces")
+    traces: document.getElementById("admin-tab-btn-traces"),
+    usage: document.getElementById("admin-tab-btn-usage")
   };
 
   function activateTab(name){
@@ -93,11 +97,8 @@
   function renderToolRows(settings, connections){
     toolList.innerHTML = "";
     toolRowState = {};
-    var connByType = {};
-    connections.forEach(function(c){ connByType[c.toolType] = c; });
 
     Object.keys(TOOL_LABELS).forEach(function(toolType){
-      var conn = connByType[toolType] || {connected: false};
       var toolSetting = (settings.tools && settings.tools[toolType]) || {enabled: false};
       var rateLimit = (settings.rateLimits && settings.rateLimits[toolType] && settings.rateLimits[toolType].capacityPerDay) || 50;
 
@@ -116,32 +117,13 @@
       label.appendChild(document.createTextNode(" " + TOOL_LABELS[toolType]));
       top.appendChild(label);
 
-      var connStatus = document.createElement("span");
-      connStatus.className = "settings-tool-conn-status";
-      connStatus.textContent = conn.connected ? ("Connected as " + (conn.label || "unknown")) : "Not connected";
-      top.appendChild(connStatus);
-
-      var actionBtn = document.createElement("button");
-      actionBtn.type = "button";
-      actionBtn.className = "btn settings-tool-connect-btn";
-      if(conn.connected){
-        actionBtn.textContent = "Disconnect";
-        actionBtn.addEventListener("click", async function(){
-          var agentId = window.Identity.getCurrentAgentId();
-          try{
-            await window.Identity.apiSend("DELETE", "/agents/" + agentId + "/tools/" + toolType);
-            await open();
-          }catch(e){}
-        });
-      } else {
-        actionBtn.textContent = "Connect";
-        actionBtn.addEventListener("click", function(){
-          var agentId = window.Identity.getCurrentAgentId();
-          window.location.href = "/api/agents/" + agentId + "/tools/" + toolType + "/connect";
-        });
-      }
-      top.appendChild(actionBtn);
       row.appendChild(top);
+
+      var accounts = document.createElement("div");
+      accounts.className = "settings-conn-list";
+      window.SettingsConnections.render(accounts, window.Identity.getCurrentAgentId(), toolType,
+        connections.filter(function(c){ return c.toolType === toolType; }), open);
+      row.appendChild(accounts);
 
       var rateRow = document.createElement("label");
       rateRow.className = "settings-tool-rate-row";
@@ -217,11 +199,13 @@
     llmRetentionCeiling = settings.llmCallRetentionDaysCeiling || llmRetentionCeiling;
     llmRetentionInput.max = llmRetentionCeiling;
     llmRetentionInput.value = settings.llmCallRetentionDays || llmRetentionInput.value;
+    showTaskCostsInput.checked = !!(settings.usageDisplay && settings.usageDisplay.showTaskCosts);
+    showBoardCostsInput.checked = !settings.usageDisplay || settings.usageDisplay.showBoardCosts !== false;
   }
 
   function renderLinksTargetOptions(){
     var agentId = window.Identity.getCurrentAgentId();
-    var others = (window.Identity.getAgents() || []).filter(function(a){ return a.id !== agentId; });
+    var others = (window.Identity.getWorkspaces() || []).filter(function(a){ return a.id !== agentId; });
     linksTargetSelect.innerHTML = "";
     others.forEach(function(a){
       var opt = document.createElement("option");
@@ -238,7 +222,7 @@
     if(!links.length){
       var empty = document.createElement("p");
       empty.className = "settings-hint";
-      empty.textContent = "This Agent doesn't delegate to any other Agent yet.";
+      empty.textContent = "This Workspace doesn't delegate to any other Workspace yet.";
       linksList.appendChild(empty);
       return;
     }
@@ -278,14 +262,17 @@
 
   function fillAgentIdentity(){
     var agentId = window.Identity.getCurrentAgentId();
-    var agent = (window.Identity.getAgents() || []).find(function(a){ return a.id === agentId; });
+    var agent = (window.Identity.getWorkspaces() || []).find(function(a){ return a.id === agentId; });
     agentNameInput.value = agent ? agent.name || "" : "";
     agentDescriptionInput.value = agent ? agent.description || "" : "";
   }
 
+  agentNameInput.addEventListener("input", function(){ agentNameInput.setCustomValidity(""); });
+
   agentIdentityForm.addEventListener("submit", async function(e){
     e.preventDefault();
     var agentId = window.Identity.getCurrentAgentId();
+    if(agentNameInput.value.trim().split(/\s+/).filter(Boolean).length > 30){ agentNameInput.setCustomValidity("Keep the name to 30 words or fewer."); agentNameInput.reportValidity(); return; }
     if(!agentId) return;
     agentSavedMsg.hidden = true;
     try{
@@ -365,12 +352,14 @@
       execution: {
         maxToolRounds: maxToolRounds
       },
-      llmCallRetentionDays: llmCallRetentionDays
+      llmCallRetentionDays: llmCallRetentionDays,
+      usageDisplay: {showTaskCosts: showTaskCostsInput.checked, showBoardCosts: showBoardCostsInput.checked}
     };
     savedMsg.hidden = true;
     try{
       var updated = await window.Identity.apiSend("PATCH", "/agents/" + agentId + "/settings", payload);
       fillForm(updated);
+      if(window.UsageBadges) { window.UsageBadges.reloadTaskCards(); window.UsageBadges.loadBoards(); }
       savedMsg.hidden = false;
     }catch(err){}
   });

@@ -6,9 +6,11 @@ from typing import Any, Mapping, Optional
 
 from ..actions.catalog import get_action
 from ..backends.base import ActionResult
+from ..models.connection import ConnectionRef
 from ..errors import ActionFailed, BackendUnavailable, GatewayError, RateLimited
 from .action_settings_service import ActionSettingsService
 from .audit_service import AuditService
+from .connection_resolver import ConnectionResolver
 from .provider_service import ProviderService
 
 log = logging.getLogger("gateway.actions")
@@ -17,19 +19,22 @@ _RETRYABLE = (RateLimited, BackendUnavailable)
 
 class ActionService:
     def __init__(self, providers: ProviderService, audit: AuditService, settings: ActionSettingsService,
-                 sleep=asyncio.sleep):
+                 resolver: ConnectionResolver, sleep=asyncio.sleep):
         self._providers = providers
         self._audit = audit
         self._settings = settings
+        self._resolver = resolver
         self._sleep = sleep
 
     async def execute(self, agent_id: str, tool_type: str, action: str, args: Mapping[str, Any],
-                      caller: str = "monolith", meta: Optional[Mapping[str, Any]] = None) -> ActionResult:
-        """meta is merged into the audit entry; never payload contents."""
+                      caller: str = "monolith", meta: Optional[Mapping[str, Any]] = None,
+                      connection_id: Optional[str] = None, acting_user: Optional[str] = None) -> ActionResult:
+        """meta is merged into the audit entry; never payload contents. No connection_id = the default."""
         extra = {"caller": caller, **(meta or {})}
         definition = get_action(action)
         provider = await self._providers.get(tool_type)
         backend = self._providers.backend_for(provider)
+        record = await self._resolver.resolve(ConnectionRef(agent_id, tool_type, connection_id), acting_user)
         # Writes are sent exactly once; only idempotent reads are retried.
         settings = await self._settings.get(action)  # retry limit / backoff are editable in the admin UI
         attempts = 1 if definition.mutating else settings.max_attempts
@@ -39,7 +44,7 @@ class ActionService:
         try:
             for attempt in range(1, attempts + 1):
                 try:
-                    result = await backend.execute_action(agent_id, provider, action, args)
+                    result = await backend.execute_action(record.backend_user_id, provider, action, args)
                     outcome = "ok" if result.ok else "action_failed"
                     return result
                 except _RETRYABLE:
@@ -53,15 +58,17 @@ class ActionService:
         finally:
             ms = int((time.monotonic() - started) * 1000)
             log.info("caller=%s provider=%s action=%s outcome=%s ms=%d", caller, tool_type, action, outcome, ms)
-            await self._audit.record(caller, action, f"{agent_id}/{tool_type}", outcome, ms, extra)
+            await self._audit.record(caller, action, f"{agent_id}/{tool_type}/{record.connection_id}", outcome, ms, extra)
 
     async def proxy(self, agent_id: str, tool_type: str, method: str, endpoint: str,
-                    params: Optional[Mapping[str, Any]], body: Any, caller: str = "monolith") -> ActionResult:
+                    params: Optional[Mapping[str, Any]], body: Any, caller: str = "monolith",
+                    connection_id: Optional[str] = None, acting_user: Optional[str] = None) -> ActionResult:
         provider = await self._providers.get(tool_type)
         backend = self._providers.backend_for(provider)
+        record = await self._resolver.resolve(ConnectionRef(agent_id, tool_type, connection_id), acting_user)
         outcome = "ok"
         try:
-            return await backend.proxy(agent_id, provider, method, endpoint, params, body)
+            return await backend.proxy(record.backend_user_id, provider, method, endpoint, params, body)
         except GatewayError as exc:
             outcome = exc.code
             raise

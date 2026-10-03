@@ -1,0 +1,23 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>System Alerts</title>
+<link rel="stylesheet" href="css/base.css">
+<link rel="stylesheet" href="css/toolbar.css">
+<link rel="stylesheet" href="css/alerts.css">
+</head>
+<body>
+<main class="alerts-page">
+  <div class="alerts-head">
+    <a class="btn" id="alerts-back" href="/">&larr; Back to boards</a>
+    <h1>System alerts</h1>
+    <label><input type="checkbox" id="alerts-show-resolved"> Show resolved</label>
+  </div>
+  <p class="alerts-note">Problems with usage accounting. Alerts clear on their own once the condition is fixed. Acknowledging only removes it from the bell count.</p>
+  <div id="alerts-list" aria-live="polite"></div>
+</main>
+<script src="alerts.js"></script>
+</body>
+</html>

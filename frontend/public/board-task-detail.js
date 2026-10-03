@@ -15,8 +15,7 @@
   // actions, for whichever task tab is currently active).
   var taskDetailBody = document.getElementById("chat-modal-body");
   var taskDetailActivityBody = document.getElementById("task-detail-activity-body");
-  var taskDetailTabBtnChat = document.getElementById("task-detail-tab-btn-chat");
-  var taskDetailTabBtnActivity = document.getElementById("task-detail-tab-btn-activity");
+  var Tabs = window.BoardTaskTabs;
   var taskDetailRunBtn = document.getElementById("task-detail-run-btn");
   var taskDetailStopBtn = document.getElementById("task-detail-stop-btn");
   var taskDetailForm = document.getElementById("chat-modal-form");
@@ -26,7 +25,6 @@
   var taskDetailBoardId = null;
   var taskDetailTaskId = null;
   var taskDetailChatId = null;
-  var taskDetailSubTab = "chat";
   var taskDetailSending = false;
 
   // Token-by-token text from an in-flight run, shown as a transient bubble
@@ -45,14 +43,19 @@
     taskDetailChatId = null;
     streamText = "";
     streamActive = false;
-    activateSubTab("chat");
+    // Description is the task's first tab, so it's what opens by default.
+    Tabs.show("description");
+    window.BoardTaskFields.open(boardId, task);
     updateHeaderButtons();
+    if(window.UsageBadges) window.UsageBadges.showTask(boardId, task.id);
     taskDetailBody.innerHTML = '<div class="chat-empty">Loading&hellip;</div>';
     taskDetailActivityBody.innerHTML = "";
     await loadTaskDetail(boardId, task.id);
   }
 
   function deactivate(){
+    if(window.UsageBadges) window.UsageBadges.hideTask();
+    window.BoardTaskFields.close();
     taskDetailBoardId = null;
     taskDetailTaskId = null;
     taskDetailChatId = null;
@@ -126,7 +129,7 @@
   }
 
   function renderStreamBubble(){
-    if(taskDetailSubTab !== "chat") return;
+    if(Tabs.current() !== "chat") return;
     var existing = taskDetailBody.querySelector(".chat-bubble-streaming");
     if(existing){
       existing.textContent = streamText;
@@ -158,17 +161,6 @@
   function refreshTaskDetailIfOpen(boardId, taskId){
     if(!isActive(boardId, taskId)) return;
     loadTaskDetail(boardId, taskId);
-  }
-
-  function activateSubTab(name){
-    taskDetailSubTab = name;
-    taskDetailBody.hidden = name !== "chat";
-    taskDetailActivityBody.hidden = name !== "activity";
-    taskDetailTabBtnChat.classList.toggle("active", name === "chat");
-    taskDetailTabBtnChat.setAttribute("aria-selected", name === "chat" ? "true" : "false");
-    taskDetailTabBtnActivity.classList.toggle("active", name === "activity");
-    taskDetailTabBtnActivity.setAttribute("aria-selected", name === "activity" ? "true" : "false");
-    taskDetailForm.hidden = name !== "chat";
   }
 
   async function sendTaskDetailMessage(){
@@ -240,8 +232,14 @@
   }
 
   function wireTaskDetailModal(){
-    taskDetailTabBtnChat.addEventListener("click", function(){ activateSubTab("chat"); });
-    taskDetailTabBtnActivity.addEventListener("click", function(){ activateSubTab("activity"); });
+    Tabs.register({
+      name: "chat", button: document.getElementById("task-detail-tab-btn-chat"),
+      panel: taskDetailBody, showForm: true, sharedPanel: true
+    });
+    Tabs.register({
+      name: "activity", button: document.getElementById("task-detail-tab-btn-activity"),
+      panel: taskDetailActivityBody, showForm: false
+    });
     taskDetailRunBtn.addEventListener("click", runSingleTask);
     taskDetailStopBtn.addEventListener("click", stopSingleTask);
   }

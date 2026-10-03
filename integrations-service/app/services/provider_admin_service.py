@@ -70,7 +70,7 @@ class ProviderAdminService:
             backend = self._providers.backend_for(provider)
             async for doc in self._conns.find({"toolType": tool_type, "status": "connected"}):
                 try:
-                    await backend.disconnect(doc["agentId"], provider)
+                    await backend.disconnect(doc.get("backendUserId") or doc["agentId"], provider)
                 except GatewayError as exc:
                     log.warning("old-backend disconnect failed for %s: %s", tool_type, exc.code)
         except GatewayError:

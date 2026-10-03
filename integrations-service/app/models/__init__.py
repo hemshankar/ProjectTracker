@@ -7,10 +7,13 @@ class SessionRequest(BaseModel):
     agentId: str = Field(min_length=1)
     toolType: str = Field(min_length=1)
     callbackUrl: str = Field(min_length=1)
+    ownerUserId: Optional[str] = None  # None = shared with the agent
+    label: Optional[str] = Field(default=None, max_length=80)
 
 
 class SessionResponse(BaseModel):
     url: str
+    connectionId: Optional[str] = None
 
 
 class ExecuteRequest(BaseModel):
@@ -19,6 +22,7 @@ class ExecuteRequest(BaseModel):
     action: str = Field(min_length=1)
     args: Dict[str, Any] = {}
     caller: str = "monolith"
+    connectionId: Optional[str] = None  # None = the agent's default connection for this tool
 
 
 class ProxyRequest(BaseModel):
@@ -28,6 +32,7 @@ class ProxyRequest(BaseModel):
     endpoint: str = Field(min_length=1)
     params: Optional[Dict[str, Any]] = None
     body: Any = None
+    connectionId: Optional[str] = None
 
 
 class ExecuteResponse(BaseModel):

@@ -14,6 +14,7 @@
     state.boards.forEach(function(b){ b.tasks = b.tasks || []; });
     state.zCounter = state.boards.reduce(function(m, b){ return Math.max(m, b.z || 0); }, 10);
     window.BoardList.renderAll();
+    if(window.UsageBadges) window.UsageBadges.loadBoards();
     // Labels are cached after their first fetch — this re-render only
     // actually happens the very first time (or after a hard reload).
     var hadLabels = window.BoardLabels.hasCache();
@@ -25,6 +26,7 @@
     window.BoardZoom.initZoom();
     window.BoardHistory.initHistoryShortcuts();
     window.BoardChat.init();
+    window.BoardTaskFields.init();
     window.BoardTaskDetail.init();
 
     var session = await window.Identity.init();

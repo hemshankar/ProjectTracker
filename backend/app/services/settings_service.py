@@ -11,6 +11,7 @@ from ..models_settings import (
     default_agent_settings,
     default_model_config,
     settings_to_json,
+    usage_display_json,
 )
 from . import audit_service
 
@@ -87,6 +88,11 @@ async def update_settings(agent_id: str, payload: AgentSettingsUpdate, actor_id:
         updates["execution"] = _resolve_execution(before_doc, payload.execution)
     if payload.llmCallRetentionDays is not None:
         updates["llmCallRetentionDays"] = _resolve_llm_call_retention(payload.llmCallRetentionDays)
+
+    if payload.usageDisplay is not None:
+        merged = usage_display_json(before_doc)
+        merged.update({k: v for k, v in payload.usageDisplay.model_dump().items() if v is not None})
+        updates["usageDisplay"] = merged
 
     if not updates:
         return settings_to_json(before_doc)

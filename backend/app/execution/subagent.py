@@ -22,7 +22,7 @@ MAX_SUBAGENT_ROUNDS = 3
 
 # Orchestration tools are for the top-level agent only — a sub-agent can't
 # spawn a sub-sub-agent, and it never spends another Agent's budget itself.
-_ORCHESTRATION_TOOLS = {"delegate_subtask", "delegate_to_agent"}
+_ORCHESTRATION_TOOLS = {"delegate_subtask", "delegate_to_agent", "update_task_description", "set_execution_summary"}
 
 
 def _allowed_tools(names: Optional[List[str]]) -> List[tools.ToolSpec]:

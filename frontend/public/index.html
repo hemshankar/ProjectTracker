@@ -12,15 +12,18 @@
 <link rel="stylesheet" href="css/chat-modal.css">
 <link rel="stylesheet" href="css/identity.css">
 <link rel="stylesheet" href="css/sharing-task-detail.css">
+<link rel="stylesheet" href="css/task-fields.css">
 <link rel="stylesheet" href="css/settings.css">
 <link rel="stylesheet" href="css/admin-console.css">
+<link rel="stylesheet" href="css/usage.css">
+<link rel="stylesheet" href="css/alerts.css">
 </head>
 <body>
 
 <div class="login-screen" id="login-screen" hidden>
   <div class="login-card">
     <h1>Manifestation Board</h1>
-    <p>Sign in with your Google account to see the Agents you&rsquo;ve been invited to.</p>
+    <p>Sign in with your Google account to see the Workspaces you&rsquo;ve been invited to.</p>
     <a class="btn btn-primary" id="login-btn" href="/api/auth/google/login">
       <svg viewBox="0 0 20 20" width="16" height="16"><path fill="#4285F4" d="M19.6 10.23c0-.68-.06-1.32-.17-1.94H10v3.9h5.38a4.6 4.6 0 0 1-2 3.02v2.5h3.23c1.9-1.75 2.99-4.32 2.99-7.48z"/><path fill="#34A853" d="M10 20c2.7 0 4.96-.9 6.62-2.42l-3.23-2.5c-.9.6-2.05.96-3.4.96-2.6 0-4.8-1.76-5.6-4.12H1.06v2.59A10 10 0 0 0 10 20z"/><path fill="#FBBC05" d="M4.4 11.92a6 6 0 0 1 0-3.84V5.49H1.06a10 10 0 0 0 0 9.02l3.34-2.59z"/><path fill="#EA4335" d="M10 3.98c1.47 0 2.79.5 3.83 1.5l2.87-2.87A9.96 9.96 0 0 0 10 0 10 10 0 0 0 1.06 5.49l3.34 2.6C5.2 5.73 7.4 3.98 10 3.98z"/></svg>
       Sign in with Google
@@ -30,15 +33,16 @@
 
 <div class="toolbar" id="app-toolbar" hidden>
   <div class="brand">
-    <h1>Manifestation Board</h1>
+    <h1>Manifestation Board:</h1>
     <p>Put your thoughts and watch them manifest</p>
   </div>
-  <span class="anchor" id="agent-switcher-anchor">
-    <button class="btn agent-switcher-btn" id="agent-switcher-btn" type="button" title="Switch Agent">
-      <span id="agent-switcher-label">Select Agent&hellip;</span>
-      <svg viewBox="0 0 20 20" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 7.5l5 5 5-5"/></svg>
-    </button>
-  </span>
+  <div class="workspace-center">
+    <span class="anchor" id="agent-switcher-anchor">
+      <button class="agent-switcher-btn" id="agent-switcher-btn" type="button" title="Switch Workspace">
+        <span id="agent-switcher-label">Select Workspace&hellip;</span>
+      </button>
+    </span>
+  </div>
   <div class="toolbar-actions">
     <span class="count-pill" id="board-count">0 boards</span>
     <span class="zoom-controls" role="group" aria-label="Canvas zoom">
@@ -75,8 +79,14 @@
     <button class="btn btn-icon btn-primary" id="add-btn" type="button" title="New task list" aria-label="New task list">
       <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10 4v12M4 10h12"/></svg>
     </button>
+    <span class="anchor" id="alerts-anchor">
+      <a class="btn btn-icon" id="alerts-btn" href="/alerts.html" hidden title="System alerts" aria-label="System alerts">
+        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 8a5 5 0 0 1 10 0c0 4 1.5 5.2 1.5 5.2h-13S5 12 5 8z"/><path d="M8.3 16.2a1.9 1.9 0 0 0 3.4 0"/></svg>
+        <span class="icon-badge alerts-badge" id="alerts-count" hidden>0</span>
+      </a>
+    </span>
     <span class="anchor" id="settings-anchor">
-      <button class="btn btn-icon" id="settings-btn" type="button" hidden title="Agent settings" aria-label="Agent settings">
+      <button class="btn btn-icon" id="settings-btn" type="button" hidden title="Workspace settings" aria-label="Workspace settings">
         <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="10" r="2.6"/><path d="M10 2.6v2.1M10 15.3v2.1M17.4 10h-2.1M4.7 10H2.6M15.1 4.9l-1.5 1.5M6.4 13.7l-1.5 1.5M15.1 15.1l-1.5-1.5M6.4 6.3L4.9 4.9"/></svg>
       </button>
     </span>
@@ -104,6 +114,7 @@
           <h2 id="chat-modal-title">Board</h2>
           <p id="chat-modal-subtitle">Scoped to this board &mdash; remembers this conversation</p>
         </div>
+        <span class="usage-pill" id="task-usage-badge" aria-live="polite" hidden></span>
       </div>
       <div class="chat-modal-header-actions">
         <button class="icon-btn" id="task-detail-run-btn" type="button" title="Run this task" aria-label="Run this task" hidden><svg viewBox="0 0 20 20" fill="currentColor" stroke="none"><path d="M6.5 4.3v11.4a1 1 0 0 0 1.53.85l8.9-5.7a1 1 0 0 0 0-1.7l-8.9-5.7a1 1 0 0 0-1.53.85Z"/></svg></button>
@@ -126,11 +137,15 @@
       </span>
     </div>
     <div class="admin-console-tabs task-chat-subtabs" role="tablist" id="task-chat-subtabs" hidden>
-      <button type="button" class="admin-console-tab active" id="task-detail-tab-btn-chat" data-subtab="chat" role="tab" aria-selected="true">Chat</button>
+      <button type="button" class="admin-console-tab active" id="task-detail-tab-btn-description" data-subtab="description" role="tab" aria-selected="true">Description</button>
+      <button type="button" class="admin-console-tab" id="task-detail-tab-btn-chat" data-subtab="chat" role="tab" aria-selected="false">Chat</button>
       <button type="button" class="admin-console-tab" id="task-detail-tab-btn-activity" data-subtab="activity" role="tab" aria-selected="false">Activities</button>
+      <button type="button" class="admin-console-tab" id="task-detail-tab-btn-summary" data-subtab="summary" role="tab" aria-selected="false">Execution Summary</button>
     </div>
+    <div class="chat-modal-body task-field-body" id="task-detail-description-body" hidden></div>
     <div class="chat-modal-body" id="chat-modal-body"></div>
     <div class="chat-modal-body" id="task-detail-activity-body" hidden></div>
+    <div class="chat-modal-body task-field-body" id="task-detail-summary-body" hidden></div>
     <form class="chat-modal-input" id="chat-modal-form">
       <textarea id="chat-modal-textarea" rows="1" placeholder="Ask about this board&hellip;" aria-label="Chat message"></textarea>
       <button type="submit" class="btn btn-primary" id="chat-modal-send">Send</button>
@@ -171,8 +186,8 @@
     <div class="chat-modal-header">
       <div class="chat-modal-titles">
         <div>
-          <h2 id="settings-modal-title">Agent Admin Console</h2>
-          <p>Config, Activity, and Traces for this Agent</p>
+          <h2 id="settings-modal-title">Workspace Admin Console</h2>
+          <p>Config, Activity, and Traces for this Workspace</p>
         </div>
       </div>
       <div class="chat-modal-header-actions">
@@ -183,16 +198,17 @@
       <button type="button" class="admin-console-tab active" id="admin-tab-btn-config" role="tab" aria-selected="true">Config</button>
       <button type="button" class="admin-console-tab" id="admin-tab-btn-activity" role="tab" aria-selected="false">Activity</button>
       <button type="button" class="admin-console-tab" id="admin-tab-btn-traces" role="tab" aria-selected="false">Traces</button>
+      <button type="button" class="admin-console-tab" id="admin-tab-btn-usage" role="tab" aria-selected="false">Usage</button>
     </div>
     <div class="chat-modal-body settings-modal-body" id="admin-tab-config">
       <form id="agent-identity-form">
         <section class="settings-section">
-          <h3>Agent</h3>
-          <p class="settings-hint">This Agent's name and what it handles — other Agents see the description when deciding whether to delegate work to it.</p>
-          <input type="text" id="settings-agent-name" aria-label="Agent name">
-          <textarea id="settings-agent-description" rows="2" placeholder="e.g. Handles customer refunds, billing disputes, and account access issues" aria-label="Agent description"></textarea>
+          <h3>Workspace</h3>
+          <p class="settings-hint">This Workspace's name and what it handles — other Workspaces see the description when deciding whether to delegate work to it.</p>
+          <input type="text" id="settings-agent-name" aria-label="Workspace name">
+          <textarea id="settings-agent-description" rows="2" placeholder="e.g. Handles customer refunds, billing disputes, and account access issues" aria-label="Workspace description"></textarea>
           <div class="settings-form-actions">
-            <button type="submit" class="btn">Save Agent</button>
+            <button type="submit" class="btn">Save Workspace</button>
             <span class="settings-saved-msg" id="settings-agent-saved-msg" hidden>Saved</span>
           </div>
         </section>
@@ -200,12 +216,12 @@
       <form id="settings-form">
         <section class="settings-section">
           <h3>Tool connections</h3>
-          <p class="settings-hint">Connect each tool through its own consent screen, then allow the Agent to use it. Sending a real email or creating a real calendar event needs both.</p>
+          <p class="settings-hint">Connect each tool through its own consent screen, then allow the Workspace to use it. Sending a real email or creating a real calendar event needs both.</p>
           <div class="settings-tool-list" id="settings-tool-list"></div>
         </section>
         <section class="settings-section">
           <h3>Model</h3>
-          <p class="settings-hint">Which Claude model runs this Agent's tasks and chat, its output token ceiling, and whether it can search the web.</p>
+          <p class="settings-hint">Which Claude model runs this Workspace's tasks and chat, its output token ceiling, and whether it can search the web.</p>
           <div class="settings-model-row">
             <select id="settings-model-select" aria-label="Model"></select>
             <input type="number" id="settings-max-tokens" min="1" step="1" aria-label="Max output tokens">
@@ -217,7 +233,7 @@
         </section>
         <section class="settings-section">
           <h3>Budget</h3>
-          <p class="settings-hint">A spend ceiling for this Agent, shared across all of its boards. Hitting it halts a running board gracefully before its next step.</p>
+          <p class="settings-hint">A spend ceiling for this Workspace, shared across all of its boards. Hitting it halts a running board gracefully before its next step.</p>
           <div class="settings-budget-row">
             <input type="number" id="settings-budget-cap" min="0" step="0.01" placeholder="No cap set" aria-label="Budget cap">
             <select id="settings-budget-unit" aria-label="Budget unit">
@@ -228,12 +244,12 @@
         </section>
         <section class="settings-section">
           <h3>Board budget overrides</h3>
-          <p class="settings-hint">Optional per-board cap. Leave blank to inherit the Agent budget above.</p>
+          <p class="settings-hint">Optional per-board cap. Leave blank to inherit the Workspace budget above.</p>
           <div class="settings-board-budget-list" id="settings-board-budget-list"></div>
         </section>
         <section class="settings-section">
           <h3>Concurrency</h3>
-          <p class="settings-hint">Max number of this Agent's tasks that may run at once, across all of its boards. Leave blank for unlimited.</p>
+          <p class="settings-hint">Max number of this Workspace's tasks that may run at once, across all of its boards. Leave blank for unlimited.</p>
           <input type="number" id="settings-max-concurrent-tasks" min="1" step="1" placeholder="Unlimited" aria-label="Max concurrent tasks">
         </section>
         <section class="settings-section">
@@ -246,6 +262,12 @@
           <p class="settings-hint">How long full LLM call detail (system prompt, request, response, tool calls) is kept in the Traces tab before it's purged. This is debug data, not the audit log &mdash; that's kept forever.</p>
           <input type="number" id="settings-llm-retention-days" min="1" step="1" aria-label="Trace retention in days">
         </section>
+        <section class="settings-section">
+          <h3>Cost display</h3>
+          <p class="settings-hint">Choose where costs appear for everyone in this Workspace. The cost in a task's detail view is always shown.</p>
+          <label class="settings-check"><input type="checkbox" id="settings-show-board-costs"> Show total cost on board cards</label>
+          <label class="settings-check"><input type="checkbox" id="settings-show-task-costs"> Show cost on task cards</label>
+        </section>
         <div class="settings-form-actions">
           <button type="submit" class="btn btn-primary" id="settings-save-btn">Save</button>
           <span class="settings-saved-msg" id="settings-saved-msg" hidden>Saved</span>
@@ -253,16 +275,16 @@
       </form>
       <section class="settings-section">
         <h3>Delegation</h3>
-        <p class="settings-hint">Grant this Agent permission to hand part of a task to a different Agent's own scatterboard, spending that Agent's budget instead of this one's.</p>
+        <p class="settings-hint">Grant this Workspace permission to hand part of a task to a different Workspace's own scatterboard, spending that Workspace's budget instead of this one's.</p>
         <div class="settings-links-list" id="settings-links-list"></div>
         <form class="settings-links-form" id="settings-links-form">
-          <select id="settings-links-target-select" aria-label="Agent to delegate to"></select>
+          <select id="settings-links-target-select" aria-label="Workspace to delegate to"></select>
           <button type="submit" class="btn">Grant</button>
         </form>
       </section>
     </div>
     <div class="chat-modal-body settings-modal-body" id="admin-tab-activity" hidden>
-      <p class="settings-hint">Every create/update/delete across this Agent's boards, tasks, and chat messages — human and agent actions alike, with before/after values.</p>
+      <p class="settings-hint">Every create/update/delete across this Workspace's boards, tasks, and chat messages — human and agent actions alike, with before/after values.</p>
       <div class="activity-filters">
         <select id="activity-board-filter" aria-label="Filter by board"><option value="">All boards</option></select>
         <select id="activity-actor-filter" aria-label="Filter by actor">
@@ -275,7 +297,7 @@
       <div class="activity-list" id="activity-list"></div>
     </div>
     <div class="chat-modal-body settings-modal-body" id="admin-tab-traces" hidden>
-      <p class="settings-hint">Every model call this Agent has made — full system prompt, request, tool call, and response, captured by default.</p>
+      <p class="settings-hint">Every model call this Workspace has made — full system prompt, request, tool call, and response, captured by default.</p>
       <div class="activity-filters">
         <select id="traces-board-filter" aria-label="Filter by board"><option value="">All boards</option></select>
         <span class="traces-live-indicator" id="traces-live-indicator" hidden><span class="live-dot"></span>Live</span>
@@ -287,6 +309,34 @@
           <p class="settings-hint">Select a call to see its full prompt, response, and tool call.</p>
         </div>
       </div>
+    </div>
+    <div class="chat-modal-body settings-modal-body usage-tab" id="admin-tab-usage" hidden>
+      <div class="usage-controls">
+        <div class="usage-presets" role="group" aria-label="Date range" id="usage-presets">
+          <button type="button" class="btn" data-days="7">7d</button>
+          <button type="button" class="btn" data-days="30">30d</button>
+          <button type="button" class="btn" data-days="90">90d</button>
+          <button type="button" class="btn" data-days="365">12m</button>
+        </div>
+        <select id="usage-granularity" aria-label="Granularity">
+          <option value="day">Day</option><option value="week">Week</option><option value="month">Month</option>
+        </select>
+        <select id="usage-groupby" aria-label="Group by">
+          <option value="board">By board</option><option value="task">By task</option><option value="model">By model</option>
+          <option value="user">By user</option><option value="callKind">By call kind</option><option value="none">No grouping</option>
+        </select>
+        <select id="usage-export-format" aria-label="Export format"><option value="csv">CSV</option><option value="jsonl">JSONL</option></select>
+        <button type="button" class="btn" id="usage-export-btn">Export</button>
+      </div>
+      <div class="usage-headline" aria-live="polite">
+        <div class="usage-headline-total" id="usage-total">&mdash;</div>
+        <div class="usage-headline-sub" id="usage-compare"></div>
+      </div>
+      <div id="usage-delay-banner" class="usage-banner" role="status" hidden></div>
+      <div id="usage-status" class="settings-hint" hidden></div>
+      <div id="usage-chart" class="usage-chart"></div>
+      <div id="usage-breakdown"></div>
+      <div id="usage-rows"></div>
     </div>
   </div>
 </div>
@@ -310,19 +360,28 @@
 
 <div class="agent-create-modal" id="agent-create-modal" hidden>
   <div class="agent-create-dialog">
-    <h2>Name your Agent</h2>
-    <p>An Agent owns one Manifestation Board &mdash; all of its boards, tasks, and chat.</p>
+    <h2>Name your Workspace</h2>
+    <p>A Workspace owns one Manifestation Board &mdash; all of its boards, tasks, and chat.</p>
     <form id="agent-create-form">
-      <input type="text" id="agent-create-input" placeholder="e.g. Marketing Agent" aria-label="Agent name" required>
-      <textarea id="agent-create-description" rows="2" placeholder="What does this Agent handle? (optional — other Agents see this when deciding whether to delegate to it)" aria-label="Agent description"></textarea>
-      <button type="submit" class="btn btn-primary">Create Agent</button>
+      <input type="text" id="agent-create-input" placeholder="e.g. Marketing Workspace" aria-label="Workspace name" required>
+      <textarea id="agent-create-description" rows="2" placeholder="What does this Workspace handle? (optional — other Workspaces see this when deciding whether to delegate to it)" aria-label="Workspace description"></textarea>
+      <div class="agent-create-actions">
+        <button type="button" class="btn" id="agent-create-cancel">Cancel</button>
+        <button type="submit" class="btn btn-primary">Create Workspace</button>
+      </div>
     </form>
   </div>
 </div>
 
 <script src="identity.js"></script>
 <script src="sharing.js"></script>
+<script src="settings-connections.js"></script>
 <script src="settings.js"></script>
+<script src="usage-format.js"></script>
+<script src="usage-api.js"></script>
+<script src="usage-chart.js"></script>
+<script src="usage-table.js"></script>
+<script src="usage-tab.js"></script>
 <script src="admin-console.js"></script>
 
 <script src="board-util.js"></script>
@@ -337,9 +396,15 @@
 <script src="board-chat-messages.js"></script>
 <script src="board-chat.js"></script>
 <script src="board-task-detail-render.js"></script>
+<script src="board-task-tabs.js"></script>
+<script src="board-task-field-history.js"></script>
+<script src="board-task-field-panel.js"></script>
+<script src="board-task-fields.js"></script>
 <script src="board-task-detail.js"></script>
 <script src="board-task-move.js"></script>
 <script src="board-task-drag.js"></script>
+<script src="usage-badges.js"></script>
+<script src="alerts-bell.js"></script>
 <script src="board-card-tasks.js"></script>
 <script src="board-card-status.js"></script>
 <script src="board-card-drag.js"></script>

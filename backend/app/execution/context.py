@@ -4,7 +4,8 @@ from ..database import task_runs_collection
 from ..models import new_id, now_ms
 
 
-async def start_task_run(board_id: str, task_id: str, agent_id: Optional[str]) -> str:
+async def start_task_run(board_id: str, task_id: str, agent_id: Optional[str],
+                         started_by: Optional[str] = None) -> str:
     run_id = new_id()
     await task_runs_collection.insert_one(
         {
@@ -18,6 +19,7 @@ async def start_task_run(board_id: str, task_id: str, agent_id: Optional[str]) -
             "error": None,
             "parentRunId": None,
             "kind": "primary",
+            "startedBy": started_by,
         }
     )
     return run_id

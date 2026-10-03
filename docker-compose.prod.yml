@@ -1,0 +1,20 @@
+# Production override: a dedicated Mongo for the accounting ledger (the permanent financial record).
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+# Migrating an existing ledger from the shared Mongo: see docs/implementation_doc/accounting_implementation_doc/accounting-runbook.md
+services:
+  accounting-mongo:
+    image: mongo:7
+    container_name: scatterboard-accounting-mongo
+    restart: unless-stopped
+    volumes:
+      - accounting-mongo-data:/data/db   # include this volume in the backup plan (daily snapshot minimum)
+
+  accounting:
+    environment:
+      MONGO_URI: mongodb://accounting-mongo:27017
+      MONGO_DB_NAME: scatterboard_accounting
+    depends_on:
+      - accounting-mongo
+
+volumes:
+  accounting-mongo-data:

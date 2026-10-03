@@ -33,6 +33,7 @@
         '<button class="task-move-btn" aria-label="Move to another board">' + moveIcon() + "</button>" +
         '<button class="task-check" aria-label="Restore task">' + checkIcon() + "</button>" +
         '<span class="task-text"></span>' +
+        '<span class="usage-pill task-card-usage" data-task-id="' + task.id + '" hidden></span>' +
         '<button class="task-del" aria-label="Delete task permanently">&times;</button>';
       li.querySelector(".task-text").innerHTML = linkify(task.text);
       li.addEventListener("click", function(e){
@@ -102,11 +103,15 @@
           '<button class="task-move-btn" aria-label="Move to another board">' + moveIcon() + "</button>" +
           '<button class="task-check" aria-label="Mark task done">' + checkIcon() + "</button>" +
           '<span class="task-text" spellcheck="false"></span>' +
+          '<span class="usage-pill task-card-usage" data-task-id="' + task.id + '" hidden></span>' +
           badge +
           (runnable ? '<button class="task-run-btn" title="Run this task" aria-label="Run this task">' + runIcon() + "</button>" : "") +
           (stoppable ? '<button class="task-stop-btn" title="Stop this task" aria-label="Stop this task">' + stopIcon() + "</button>" : "") +
           '<button class="task-edit-btn" aria-label="Edit task text">' + pencilIcon() + "</button>" +
           '<button class="task-del" aria-label="Delete task">&times;</button>';
+
+        var descSnippet = window.BoardTaskFields.buildSnippet(task);
+        if(descSnippet) li.appendChild(descSnippet);
 
         if(runnable){
           var runBtn = li.querySelector(".task-run-btn");
@@ -214,6 +219,7 @@
 
         doneTasks.forEach(function(task){ taskList.appendChild(buildCompletedItem(task)); });
       }
+      if(window.UsageBadges) window.UsageBadges.mountTaskCards(board, taskList);
     }
 
     renderTasks();
@@ -236,6 +242,14 @@
         updateMeta();
       }).catch(function(){});
     });
+
+    // Keeps the Description preview current when it's edited in the task
+    // modal or by the agent; unhooks itself once this card has been replaced.
+    function onFieldChanged(e){
+      if(!el.isConnected){ document.removeEventListener("task-field-changed", onFieldChanged); return; }
+      if(e.detail.boardId === board.id) renderTasks();
+    }
+    document.addEventListener("task-field-changed", onFieldChanged);
 
     ctx.renderTasks = renderTasks;
     ctx.updateMeta = updateMeta;

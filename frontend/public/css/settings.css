@@ -171,3 +171,18 @@
   margin-bottom:8px;
   resize:vertical;
 }
+
+.settings-conn-list{ display:flex; flex-direction:column; gap:6px; }
+.settings-conn-account{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; font-size:13px; }
+.settings-conn-label{ font-weight:600; color:var(--ink); }
+.settings-conn-badge{
+  font-size:11px;
+  padding:1px 7px;
+  border-radius:999px;
+  border:1px solid var(--border);
+  color:var(--ink-soft);
+}
+.settings-conn-badge-default{ color:var(--ink); border-color:var(--ink-soft); }
+.settings-conn-badge-warn{ color:#b45309; border-color:#b45309; }
+.settings-conn-actions{ margin-left:auto; display:flex; gap:6px; }
+.settings-conn-add{ display:flex; gap:8px; flex-wrap:wrap; }

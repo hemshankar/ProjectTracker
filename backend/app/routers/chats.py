@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
+from ..accounting.attribution import UsageAttribution
 from ..chat_service import stream_reply
 from ..database import boards_collection
 from ..dependencies import get_current_user, require_board_access
@@ -94,7 +95,8 @@ async def send_message(
     async def event_stream():
         assistant_text = ""
         try:
-            async for delta in stream_reply(board, history):
+            attribution = UsageAttribution(user["_id"], chat.get("taskId"))
+            async for delta in stream_reply(board, history, attribution):
                 assistant_text += delta
                 yield f"data: {json.dumps({'delta': delta})}\n\n"
         finally:

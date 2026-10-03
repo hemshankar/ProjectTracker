@@ -7,7 +7,7 @@ response, the one tool call this turn made, if any).
 """
 from typing import Any, Optional
 
-from ..services import budget_service
+from ..accounting.recorder import get_recorder
 from .events import events
 
 
@@ -23,6 +23,9 @@ def _summary(doc: dict) -> dict:
         "tool": tool_call.get("name") if tool_call else None,
         "status": tool_call.get("status") if tool_call else "done",
         "usd": doc.get("usd", 0.0),
+        "model": doc.get("model"),
+        "inputTokens": doc.get("inputTokens", 0),
+        "outputTokens": doc.get("outputTokens", 0),
         "latencyMs": doc.get("latencyMs"),
         "ts": doc.get("ts"),
     }
@@ -32,7 +35,7 @@ async def record_call(
     *,
     agent_id: Optional[str],
     board_id: str,
-    task_id: str,
+    task_id: Optional[str],
     run_id: Optional[str],
     response: Any,
     system_prompt: str,
@@ -41,21 +44,10 @@ async def record_call(
     latency_ms: float,
     parent_run_id: Optional[str] = None,
 ) -> None:
-    usage = getattr(response, "usage", None)
-    input_tokens = usage.input_tokens if usage is not None else 0
-    output_tokens = usage.output_tokens if usage is not None else 0
-    usd = budget_service.usd_for_usage(input_tokens, output_tokens) if usage is not None else 0.0
     response_text = "\n".join(b.text for b in response.content if b.type == "text")
-
-    doc = await budget_service.record_llm_call(
-        agent_id, board_id, task_id, run_id, usd,
-        parent_run_id=parent_run_id,
-        system_prompt=system_prompt,
-        request_messages=list(request_messages),
-        response_text=response_text,
-        tool_call=tool_call,
-        input_tokens=input_tokens,
-        output_tokens=output_tokens,
-        latency_ms=latency_ms,
+    doc = await get_recorder().record(
+        agent_id=agent_id, board_id=board_id, task_id=task_id, run_id=run_id, response=response,
+        system_prompt=system_prompt, request_messages=list(request_messages), tool_call=tool_call,
+        latency_ms=latency_ms, response_text=response_text, parent_run_id=parent_run_id,
     )
     await events.publish(board_id, {"boardId": board_id, "llmCall": _summary(doc)})

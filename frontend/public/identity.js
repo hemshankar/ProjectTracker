@@ -23,6 +23,7 @@
   var userAvatarFallback = document.getElementById("user-avatar-fallback");
 
   var createModal = document.getElementById("agent-create-modal");
+  var createCancelBtn = document.getElementById("agent-create-cancel");
   var createForm = document.getElementById("agent-create-form");
   var createInput = document.getElementById("agent-create-input");
   var createDescriptionInput = document.getElementById("agent-create-description");
@@ -72,7 +73,7 @@
 
   function renderSwitcherLabel(){
     var agent = agents.find(function(a){ return a.id === currentAgentId; });
-    switcherLabel.textContent = agent ? agent.name : "Select Agent…";
+    switcherLabel.textContent = agent ? agent.name : "Select Workspace…";
   }
 
   function setCurrentAgent(agentId){
@@ -85,11 +86,45 @@
   function openCreateModal(){
     closeSwitcherPop();
     createModal.hidden = false;
+    createCancelBtn.hidden = !agents.length;
     createInput.value = "";
     createDescriptionInput.value = "";
     createInput.focus();
   }
   function closeCreateModal(){ createModal.hidden = true; }
+  createCancelBtn.addEventListener("click", closeCreateModal);
+
+  function startRename(){
+    var agent = agents.find(function(a){ return a.id === currentAgentId; });
+    if(!agent) return;
+    var input = document.createElement("input");
+    input.type = "text";
+    input.className = "agent-rename-input";
+    input.value = agent.name;
+    input.setAttribute("aria-label", "Workspace name");
+    var done = false;
+    function finish(save){
+      if(done) return;
+      done = true;
+      var name = input.value.trim();
+      var valid = name && name.split(/\s+/).length <= MAX_NAME_WORDS;
+      switcherBtn.hidden = false;
+      input.remove();
+      if(!save || !valid || name === agent.name) return;
+      apiSend("PATCH", "/agents/" + agent.id, {name: name, description: agent.description || ""})
+        .then(function(updated){ window.Identity.updateAgentLocal(updated); })
+        .catch(function(){});
+    }
+    input.addEventListener("keydown", function(e){
+      if(e.key === "Enter"){ e.preventDefault(); finish(true); }
+      else if(e.key === "Escape"){ finish(false); }
+    });
+    input.addEventListener("blur", function(){ finish(true); });
+    switcherBtn.hidden = true;
+    switcherAnchor.insertBefore(input, switcherBtn);
+    input.focus();
+    input.select();
+  }
 
   function renderSwitcherPop(){
     closeUserPop();
@@ -120,9 +155,18 @@
     var newBtn = document.createElement("button");
     newBtn.type = "button";
     newBtn.className = "agent-switcher-new";
-    newBtn.textContent = "+ New Agent";
+    newBtn.textContent = "+ New Workspace";
     newBtn.addEventListener("click", openCreateModal);
     pop.appendChild(newBtn);
+    var current = agents.find(function(a){ return a.id === currentAgentId; });
+    if(current && current.myRole === "admin"){
+      var renameBtn = document.createElement("button");
+      renameBtn.type = "button";
+      renameBtn.className = "agent-switcher-new agent-switcher-rename";
+      renameBtn.textContent = "Rename this Workspace";
+      renameBtn.addEventListener("click", function(){ closeSwitcherPop(); startRename(); });
+      pop.appendChild(renameBtn);
+    }
     switcherAnchor.appendChild(pop);
   }
 
@@ -155,10 +199,15 @@
     if(!e.target.closest("#user-menu-anchor")) closeUserPop();
   });
 
+  var MAX_NAME_WORDS = 30;
+  function wordCount(s){ return s.split(/\s+/).filter(Boolean).length; }
+  createInput.addEventListener("input", function(){ createInput.setCustomValidity(""); });
+
   createForm.addEventListener("submit", async function(e){
     e.preventDefault();
     var name = createInput.value.trim();
     if(!name) return;
+    if(wordCount(name) > MAX_NAME_WORDS){ createInput.setCustomValidity("Keep the name to ".concat(MAX_NAME_WORDS, " words or fewer.")); createInput.reportValidity(); return; }
     try{
       var agent = await apiSend("POST", "/agents", {name: name, description: createDescriptionInput.value.trim()});
       agents.push(agent);
@@ -167,7 +216,7 @@
     }catch(err){}
   });
 
-  async function loadAgents(){
+  async function loadWorkspaces(){
     agents = await apiGet("/agents");
     var stored = null;
     try{ stored = localStorage.getItem(AGENT_KEY); }catch(e){}
@@ -191,7 +240,7 @@
     }
 
     renderUserMenu();
-    await loadAgents();
+    await loadWorkspaces();
 
     if(!agents.length){
       appToolbar.hidden = false;
@@ -220,7 +269,7 @@
       return agent ? agent.myRole : null;
     },
     getUser: function(){ return currentUser; },
-    getAgents: function(){ return agents.slice(); },
+    getWorkspaces: function(){ return agents.slice(); },
     updateAgentLocal: function(updated){
       var existing = agents.find(function(a){ return a.id === updated.id; });
       if(existing){

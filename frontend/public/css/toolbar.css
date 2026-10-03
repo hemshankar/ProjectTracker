@@ -9,7 +9,8 @@
   background:var(--surface);
   z-index:1000;
 }
-.brand{ display:flex; align-items:baseline; gap:10px; }
+.brand{ display:flex; flex-direction:column; gap:2px; }
+.workspace-center{ flex:1; display:flex; justify-content:center; align-items:baseline; gap:8px; min-width:0; }
 .brand h1{
   font-family:'Fraunces', serif;
   font-weight:600;

@@ -24,6 +24,7 @@
       '<div class="card-topbar"></div>' +
       '<div class="card-header">' +
         '<div class="card-title" spellcheck="false"></div>' +
+        '<span class="usage-pill board-usage-pill" hidden></span>' +
         '<div class="card-header-actions">' +
           '<button class="icon-btn edit-title-btn" title="Rename board" aria-label="Rename board"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M13.4 3.6a1.4 1.4 0 0 1 2 0l1 1a1.4 1.4 0 0 1 0 2L7 15.2l-3.2.8.8-3.2 8.8-9.2Z"/><path d="M12 5l3 3"/></svg></button>' +
           '<button class="icon-btn color-btn" title="Change color" aria-label="Change color"><span class="color-dot"></span></button>' +
@@ -80,6 +81,7 @@
     var ctx = { board: board, el: el, readOnly: readOnly };
     window.BoardCardTasks.wire(ctx);
     window.BoardCardStatus.wire(ctx);
+    if(window.UsageBadges) window.UsageBadges.mountBoard(board, el);
 
     var colorBtn = el.querySelector(".color-btn");
     var colorDot = el.querySelector(".color-dot");

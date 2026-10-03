@@ -77,6 +77,9 @@ def _call_summary_json(d: dict) -> dict:
         "tool": tool_call.get("name") if tool_call else None,
         "status": tool_call.get("status") if tool_call else "done",
         "usd": d.get("usd", 0.0),
+        "model": d.get("model"),
+        "callKind": d.get("callKind"),
+        "outcome": d.get("outcome"),
         "latencyMs": d.get("latencyMs"),
         "ts": d.get("ts"),
     }
@@ -88,6 +91,7 @@ async def list_llm_calls(
     board_id: Optional[str] = None,
     task_id: Optional[str] = None,
     run_id: Optional[str] = None,
+    call_kind: Optional[str] = None,
     since: Optional[int] = None,
     until: Optional[int] = None,
 ) -> list:
@@ -101,6 +105,8 @@ async def list_llm_calls(
         match["taskId"] = task_id
     if run_id:
         match["runId"] = run_id
+    if call_kind:
+        match["callKind"] = call_kind
     cursor = llm_calls_collection.find(match).sort("ts", 1).limit(_LIST_LIMIT)
     return [_call_summary_json(d) async for d in cursor]
 
@@ -120,8 +126,11 @@ async def get_llm_call(agent_id: str, call_id: str) -> Optional[dict]:
         "response": d.get("response"),
         "toolCalls": d.get("toolCalls") or [],
         "usd": d.get("usd", 0.0),
+        "model": d.get("model"),
         "inputTokens": d.get("inputTokens"),
         "outputTokens": d.get("outputTokens"),
+        "cacheReadTokens": d.get("cacheReadTokens"),
+        "cacheCreationTokens": d.get("cacheCreationTokens"),
         "latencyMs": d.get("latencyMs"),
         "ts": d.get("ts"),
     }

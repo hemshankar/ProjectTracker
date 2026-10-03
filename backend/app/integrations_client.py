@@ -27,10 +27,14 @@ class IntegrationsClient(Protocol):
     """What the monolith needs from the integrations service (injectable for tests)."""
 
     async def ping(self) -> bool: ...
-    async def create_session(self, agent_id: str, tool_type: str, callback_url: str) -> str: ...
-    async def list_connections(self, agent_id: str) -> List[dict]: ...
+    async def create_session(self, agent_id: str, tool_type: str, callback_url: str,
+                             owner_user_id: Optional[str] = None, label: Optional[str] = None) -> str: ...
+    async def list_connections(self, agent_id: str, acting_user: Optional[str] = None) -> List[dict]: ...
     async def disconnect(self, agent_id: str, tool_type: str) -> None: ...
-    async def execute(self, agent_id: str, tool_type: str, action: str, args: dict) -> GatewayResult: ...
+    async def disconnect_connection(self, agent_id: str, connection_id: str, acting_user: Optional[str] = None) -> None: ...
+    async def set_default(self, agent_id: str, connection_id: str, acting_user: Optional[str] = None) -> None: ...
+    async def execute(self, agent_id: str, tool_type: str, action: str, args: dict,
+                      connection_id: Optional[str] = None, acting_user: Optional[str] = None) -> GatewayResult: ...
 
 
 class HttpIntegrationsClient:
@@ -38,11 +42,13 @@ class HttpIntegrationsClient:
         self._base_url = (base_url or config.INTEGRATIONS_SERVICE_URL).rstrip("/")
         self._service_key = service_key if service_key is not None else config.INTERNAL_SERVICE_KEY
 
-    async def _request(self, method: str, path: str, **kwargs):
+    async def _request(self, method: str, path: str, acting_user: Optional[str] = None, **kwargs):
+        headers = {"X-Internal-Key": self._service_key}
+        if acting_user:  # the gateway trusts this only because the internal key is present
+            headers["X-Acting-User"] = acting_user
         try:
             async with httpx.AsyncClient(timeout=30) as client:
-                resp = await client.request(method, f"{self._base_url}{path}",
-                                            headers={"X-Internal-Key": self._service_key}, **kwargs)
+                resp = await client.request(method, f"{self._base_url}{path}", headers=headers, **kwargs)
         except httpx.HTTPError as exc:
             raise IntegrationsError(503, "Integrations service is unreachable") from exc
         if resp.status_code >= 400:
@@ -60,20 +66,33 @@ class HttpIntegrationsClient:
         except IntegrationsError:
             return False
 
-    async def create_session(self, agent_id: str, tool_type: str, callback_url: str) -> str:
-        data = await self._request("POST", "/connections/session", json={
-            "agentId": agent_id, "toolType": tool_type, "callbackUrl": callback_url})
-        return data["url"]
+    async def create_session(self, agent_id: str, tool_type: str, callback_url: str,
+                             owner_user_id: Optional[str] = None, label: Optional[str] = None) -> str:
+        body = {"agentId": agent_id, "toolType": tool_type, "callbackUrl": callback_url}
+        if owner_user_id:
+            body["ownerUserId"] = owner_user_id
+        if label:
+            body["label"] = label
+        return (await self._request("POST", "/connections/session", json=body))["url"]
 
-    async def list_connections(self, agent_id: str) -> List[dict]:
-        return await self._request("GET", f"/connections/{agent_id}")
+    async def list_connections(self, agent_id: str, acting_user: Optional[str] = None) -> List[dict]:
+        return await self._request("GET", f"/connections/{agent_id}", acting_user=acting_user)
+
+    async def disconnect_connection(self, agent_id: str, connection_id: str, acting_user: Optional[str] = None) -> None:
+        await self._request("DELETE", f"/connections/{agent_id}/by-id/{connection_id}", acting_user=acting_user)
+
+    async def set_default(self, agent_id: str, connection_id: str, acting_user: Optional[str] = None) -> None:
+        await self._request("POST", f"/connections/{agent_id}/by-id/{connection_id}/default", acting_user=acting_user)
 
     async def disconnect(self, agent_id: str, tool_type: str) -> None:
         await self._request("DELETE", f"/connections/{agent_id}/{tool_type}")
 
-    async def execute(self, agent_id: str, tool_type: str, action: str, args: dict) -> GatewayResult:
-        data = await self._request("POST", "/execute", json={
-            "agentId": agent_id, "toolType": tool_type, "action": action, "args": args, "caller": "monolith"})
+    async def execute(self, agent_id: str, tool_type: str, action: str, args: dict,
+                      connection_id: Optional[str] = None, acting_user: Optional[str] = None) -> GatewayResult:
+        body = {"agentId": agent_id, "toolType": tool_type, "action": action, "args": args, "caller": "monolith"}
+        if connection_id:
+            body["connectionId"] = connection_id
+        data = await self._request("POST", "/execute", acting_user=acting_user, json=body)
         return GatewayResult(ok=data.get("ok", False), result=data.get("result"), error=data.get("error"))
 
 

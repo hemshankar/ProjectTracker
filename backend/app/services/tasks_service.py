@@ -1,3 +1,5 @@
+from typing import Optional
+
 from fastapi import HTTPException
 
 from .. import task_state
@@ -5,7 +7,8 @@ from ..database import boards_collection
 from ..execution import concurrency, glow
 from ..execution.events import events
 from ..models import TaskUpdate, now_ms, sanitize_task, task_to_json
-from . import audit_service
+from ..task_fields import DESCRIPTION
+from . import audit_service, task_fields_service
 
 # A board sitting in one of these reflects a run that has nothing left to do.
 # Reopening a task (or adding a new one) puts idle work back on the board, so
@@ -47,7 +50,10 @@ def _find_task(board: dict, task_id: str) -> dict:
     return task
 
 
-async def add_task(board_id: str, task_id: str, text: str, done: bool, actor_id: str) -> dict:
+async def add_task(
+    board_id: str, task_id: str, text: str, done: bool, actor_id: str,
+    description: Optional[str] = None, description_source: str = "human",
+) -> dict:
     board = await _get_board(board_id)
     task = sanitize_task({"id": task_id, "text": text, "done": done})
     if not task:
@@ -69,6 +75,15 @@ async def add_task(board_id: str, task_id: str, text: str, done: bool, actor_id:
         before=None,
         after=task,
     )
+    if description and description.strip():
+        author_type = "integration" if description_source == "integration" else "human"
+        try:
+            await task_fields_service.write_field(
+                board_id, task["id"], DESCRIPTION, description, 0, author_type, actor_id,
+            )
+        except task_fields_service.FieldValidationError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+        task = next(t for t in (await _get_board(board_id))["tasks"] if t["id"] == task["id"])
     return task_to_json(task)
 
 

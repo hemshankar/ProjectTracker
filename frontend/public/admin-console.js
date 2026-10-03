@@ -32,7 +32,7 @@
   }
 
   function fmtUsd(usd){
-    return "$" + (usd || 0).toFixed(4);
+    return window.UsageFormat.usd(usd || 0);
   }
 
   function boardLabel(boardId){
@@ -218,6 +218,14 @@
     tracesLiveIndicator.hidden = true;
     if(name === "activity") loadActivity();
     if(name === "traces") loadTraces();
+    if(name === "usage" && window.UsageTab) window.UsageTab.activate(agentId);
+  }
+
+  // Jump from a Usage ledger row to the matching Traces entry.
+  async function openTrace(callId){
+    document.getElementById("admin-tab-btn-traces").click();
+    await loadTraces();
+    selectCall(callId);
   }
 
   activityRefreshBtn.addEventListener("click", loadActivity);
@@ -254,6 +262,8 @@
     setBoards: setBoards,
     onTabActivated: onTabActivated,
     onLiveLlmCall: onLiveLlmCall,
-    openBoardActivity: openBoardActivity
+    openBoardActivity: openBoardActivity,
+    openTrace: openTrace,
+    boardTitle: boardLabel
   };
 })();

@@ -1,11 +1,13 @@
 import asyncio
+import logging
 from typing import Optional
 
 from .. import task_state
 from ..database import boards_collection
 from ..services import audit_service, chats_service
-from . import agent_service, completion, concurrency, delegation, stopping
+from . import agent_service, completion, completion_summary, concurrency, delegation, stopping
 from . import context as run_context
+from ..accounting.attribution import DispatchAttribution
 from .dispatch import DispatchStrategy, LLMDispatchStrategy
 from .enforcement import BudgetExceededError, halt_board
 from .events import events
@@ -32,9 +34,11 @@ class AgentRunner:
     concurrent tasks from touching the same external resource at once.
     """
 
-    def __init__(self, board_id: str, agent_id: Optional[str], dispatch_strategy: Optional[DispatchStrategy] = None) -> None:
+    def __init__(self, board_id: str, agent_id: Optional[str], dispatch_strategy: Optional[DispatchStrategy] = None,
+                 started_by: Optional[str] = None) -> None:
         self.board_id = board_id
         self.agent_id = agent_id
+        self.started_by = started_by  # triggering user; None for automatic runs
         self.dispatch_strategy = dispatch_strategy or LLMDispatchStrategy()
 
     async def run(self) -> None:
@@ -60,7 +64,9 @@ class AgentRunner:
                     await self._halt("stopped", "user")
                     return
 
-                stages, held_ids = await self.dispatch_strategy.group(idle_tasks, board.get("tasks", []))
+                stages, held_ids = await self.dispatch_strategy.group(
+                    idle_tasks, board.get("tasks", []),
+                    DispatchAttribution(self.agent_id, self.board_id, self.started_by))
                 held_reason = "Waiting on another task to resolve"
                 for held_id in held_ids:
                     await task_state.transition_task_status(
@@ -93,7 +99,7 @@ class AgentRunner:
 
     async def _run_task(self, board: dict, task: dict) -> None:
         task_id = task["id"]
-        run_id = await run_context.start_task_run(self.board_id, task_id, self.agent_id)
+        run_id = await run_context.start_task_run(self.board_id, task_id, self.agent_id, self.started_by)
         claimed = await task_state.transition_task_status(
             self.board_id, task_id, ["idle"], "running", currentRunId=run_id, statusReason=None
         )
@@ -130,6 +136,9 @@ class AgentRunner:
                 error = str(exc)
                 status = "failed"
                 await self._record_failure(board, task, error)
+
+            if status in ("done", "failed", "stopped", "manual"):
+                await self._finalize_summary(task_id, status, error or budget_reason)
 
             if status in ("awaiting_approval", "awaiting_reply", "awaiting_clarification", "manual"):
                 # Suspended, not finished: leave currentRunId in place so the
@@ -176,6 +185,13 @@ class AgentRunner:
         finally:
             if current is not None:
                 stopping.task_registry.unregister(task_id, current)
+
+    async def _finalize_summary(self, task_id: str, status: str, reason: Optional[str]) -> None:
+        """Best effort — a summary hiccup must never change how the run itself ends."""
+        try:
+            await completion_summary.finalize(self.board_id, task_id, status, reason)
+        except Exception:
+            logging.getLogger("uvicorn.error").exception("execution summary failed for task %s", task_id)
 
     async def _do_work(self, board: dict, task: dict) -> str:
         chat = await chats_service.get_or_create_task_chat(board, task)

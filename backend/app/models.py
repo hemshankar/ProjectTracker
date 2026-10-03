@@ -19,6 +19,10 @@ class TaskIn(BaseModel):
     text: str
     id: Optional[str] = None
     done: Optional[bool] = None
+    # Seeds the task's Description (e.g. from an email body or ticket text).
+    description: Optional[str] = None
+    # Who the seed came from: "human" (default) or "integration".
+    descriptionSource: Optional[str] = None
 
 
 class TaskUpdate(BaseModel):
@@ -104,6 +108,11 @@ def sanitize_task(raw: dict) -> Optional[dict]:
 def task_to_json(task: dict) -> dict:
     out = dict(task)
     out["done"] = out.get("status") == "done"
+    # Tasks created before Description/Summary existed read as empty.
+    out.setdefault("description", "")
+    out.setdefault("descriptionVersion", 0)
+    out.setdefault("completionSummary", "")
+    out.setdefault("completionSummaryVersion", 0)
     return out
 
 

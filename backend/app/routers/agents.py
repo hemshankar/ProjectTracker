@@ -178,12 +178,13 @@ async def get_agent_llm_calls(
     boardId: Optional[str] = None,
     taskId: Optional[str] = None,
     runId: Optional[str] = None,
+    callKind: Optional[str] = None,
     since: Optional[int] = None,
     until: Optional[int] = None,
     _admin: dict = Depends(require_agent_admin()),
 ):
     return await observability.list_llm_calls(
-        agent_id, board_id=boardId, task_id=taskId, run_id=runId, since=since, until=until
+        agent_id, board_id=boardId, task_id=taskId, run_id=runId, call_kind=callKind, since=since, until=until
     )
 
 

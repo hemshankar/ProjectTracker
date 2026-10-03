@@ -19,7 +19,7 @@ class FakeClient:
             raise self.fail
         return f"https://connect.example/{tool_type}?cb={callback_url}"
 
-    async def list_connections(self, agent_id):
+    async def list_connections(self, agent_id, acting_user=None):
         return [{"toolType": "slack", "connected": True, "label": "Slack"}]
 
     async def disconnect(self, agent_id, tool_type):

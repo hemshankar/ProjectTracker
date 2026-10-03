@@ -281,7 +281,8 @@ async def export_boards_pdf(agent_id: str, _user: dict = Depends(require_agent_m
 @router.post("/{board_id}/tasks")
 async def add_task(board_id: str, payload: TaskIn, user: dict = Depends(require_board_access("editor"))):
     return await tasks_service.add_task(
-        board_id, payload.id, payload.text, bool(payload.done), user["_id"]
+        board_id, payload.id, payload.text, bool(payload.done), user["_id"],
+        description=payload.description, description_source=payload.descriptionSource or "human",
     )
 
 
@@ -405,7 +406,7 @@ async def run_single_task(
     whichever side claims the task first wins and the other no-ops.
     """
     reset = await tasks_service.prepare_task_for_run(board_id, task_id, user["_id"])
-    runner = AgentRunner(board_id=board_id, agent_id=reset.get("agentId"))
+    runner = AgentRunner(board_id=board_id, agent_id=reset.get("agentId"), started_by=user["_id"])
     asyncio.create_task(runner.run_task_by_id(task_id))
     return board_to_json(reset)
 
@@ -463,7 +464,7 @@ async def start_board(board_id: str, user: dict = Depends(require_board_access("
         after=running,
     )
 
-    runner = AgentRunner(board_id=board_id, agent_id=running.get("agentId"))
+    runner = AgentRunner(board_id=board_id, agent_id=running.get("agentId"), started_by=user["_id"])
     registry.register(board_id, asyncio.create_task(runner.run()))
 
     return board_to_json(running)

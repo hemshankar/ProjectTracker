@@ -40,3 +40,23 @@ def test_session_then_status_then_execute(container, monkeypatch):
     assert ex.status_code == 200 and ex.json()["ok"]
     assert c.delete("/connections/a1/gmail", headers=H).json() == {"ok": True}
     app.dependency_overrides.clear()
+
+
+def test_by_id_routes_and_acting_user_visibility(container, monkeypatch):
+    c = _client(container, monkeypatch)
+
+    def connect(owner=None, label=None):
+        body = {"agentId": "a1", "toolType": "gmail", "callbackUrl": "http://x", "ownerUserId": owner, "label": label}
+        return c.post("/connections/session", json=body, headers=H).json()["connectionId"]
+
+    shared, mine = connect(label="work@acme.com"), connect("u1", "me@home.com")
+    ids = lambda user: {s["connectionId"] for s in c.get("/connections/a1", headers={**H, "X-Acting-User": user}).json()
+                        if s["connectionId"]}
+    assert ids("u1") == {shared, mine} and ids("u2") == {shared}
+    body = {"agentId": "a1", "toolType": "gmail", "action": "gmail.list_messages", "connectionId": mine}
+    assert c.post("/execute", json=body, headers={**H, "X-Acting-User": "u2"}).status_code == 403
+    assert c.post("/execute", json=body, headers={**H, "X-Acting-User": "u1"}).json()["ok"]
+    assert c.post(f"/connections/a1/by-id/{mine}/default", headers={**H, "X-Acting-User": "u1"}).status_code == 422
+    assert c.delete(f"/connections/a1/by-id/{mine}", headers={**H, "X-Acting-User": "u1"}).json() == {"ok": True}
+    assert ids("u1") == {shared}
+    app.dependency_overrides.clear()

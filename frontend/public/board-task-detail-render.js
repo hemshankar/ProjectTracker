@@ -115,7 +115,7 @@
     var parts = [
       (counts.agents || 0) + " agent" + (counts.agents === 1 ? "" : "s"),
       (counts.subAgents || 0) + " sub-agent" + (counts.subAgents === 1 ? "" : "s"),
-      (counts.peerAgents || 0) + " peer Agent" + (counts.peerAgents === 1 ? "" : "s"),
+      (counts.peerAgents || 0) + " peer Workspace" + (counts.peerAgents === 1 ? "" : "s"),
     ];
     el.textContent = parts.join(" · ") + " have worked this task";
     return el;
@@ -183,12 +183,12 @@
     var details = document.createElement("details");
     details.className = "task-detail-collapsible";
     var summary = document.createElement("summary");
-    summary.textContent = "Peer Agent conversation (" + peerDelegations.length + ")";
+    summary.textContent = "Peer Workspace conversation (" + peerDelegations.length + ")";
     details.appendChild(summary);
     if(!peerDelegations.length){
       var empty = document.createElement("p");
       empty.className = "settings-hint";
-      empty.textContent = "This task was never delegated to another Agent.";
+      empty.textContent = "This task was never delegated to another Workspace.";
       details.appendChild(empty);
       return details;
     }
@@ -202,7 +202,7 @@
       if(!peer.accessible){
         var restricted = document.createElement("p");
         restricted.className = "settings-hint";
-        restricted.textContent = "You don't have access to that Agent's board, so its conversation isn't shown here.";
+        restricted.textContent = "You don't have access to that Workspace's board, so its conversation isn't shown here.";
         card.appendChild(restricted);
       } else if(!peer.messages.length){
         var waiting = document.createElement("p");

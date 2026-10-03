@@ -20,6 +20,10 @@ global_settings_collection = db["global_settings"]
 agent_links_collection = db["agent_links"]
 labels_collection = db["labels"]
 undo_pointers_collection = db["undo_pointers"]
+task_revisions_collection = db["task_revisions"]
+usage_outbox_collection = db["usage_outbox"]
+spend_counters_collection = db["spend_counters"]
+system_alerts_collection = db["system_alerts"]
 
 
 async def ensure_indexes():
@@ -47,6 +51,13 @@ async def ensure_indexes():
     await task_runs_collection.create_index([("parentRunId", 1)])
     await boards_collection.create_index("tasks.delegatedFromTaskId")
     await labels_collection.create_index("name", unique=True)
+    await task_revisions_collection.create_index(
+        [("taskId", 1), ("field", 1), ("version", -1)], unique=True
+    )
+    await usage_outbox_collection.create_index([("status", 1), ("nextAttemptAt", 1)])
+    # TTL only fires on rows with a `deliveredAt` date, so pending rows never expire.
+    await usage_outbox_collection.create_index(
+        "deliveredAt", expireAfterSeconds=config.OUTBOX_DELIVERED_TTL_DAYS * 86_400)
 
 
 def close_client() -> None:

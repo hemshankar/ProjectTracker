@@ -85,6 +85,22 @@ def _board_chat_note(board: dict, task: dict) -> str:
     )
 
 
+def _description_note(task: dict) -> str:
+    version = task.get("descriptionVersion") or 0
+    description = (task.get("description") or "").strip()
+    shown = description if description else "(empty — nothing has been written yet)"
+    return (
+        f"\n\nTask description (current version: {version} — pass this as base_version to "
+        f"update_task_description):\n{shown}\n\n"
+        "The description is this task's detailed context. As the task gets clearer — requirements "
+        "pinned down, decisions made, facts learned — keep it current with update_task_description "
+        "(send the full new text; if you remove anything, say what and why in removed_summary). "
+        "Before you finish the task, or stop because it failed or is waiting on someone outside this "
+        "system, call set_execution_summary with what was done, the outcome, and anything the user "
+        "should follow up on."
+    )
+
+
 async def build_task_system_prompt(board: dict, task: dict, is_first_turn: bool = True) -> str:
     context = build_board_context(board)
     delegation_note = await _delegation_targets_note(board.get("agentId"))
@@ -99,7 +115,7 @@ async def build_task_system_prompt(board: dict, task: dict, is_first_turn: bool 
         "call ask_user with your question instead of assuming.\n\n"
     ) if is_first_turn else ""
     return (
-        f'{context}\n\nFocus on this task: "{task.get("text", "")}".\n\n'
+        f'{context}\n\nFocus on this task: "{task.get("text", "")}".{_description_note(task)}\n\n'
         f"{ambiguity_check_note}"
         "You can call ask_user any time — at the start, or later mid-task if you get stuck and need "
         "more information — rather than guessing; this pauses the task until the user replies in "

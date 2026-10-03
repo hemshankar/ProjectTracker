@@ -1,4 +1,5 @@
 import io
+import re
 from datetime import datetime
 
 from reportlab.lib.colors import HexColor
@@ -32,6 +33,28 @@ def _wrap(c: canvas.Canvas, text: str, font: str, size: float, max_width: float)
     if current:
         lines.append(current)
     return lines or [""]
+
+
+_MD_NOISE = re.compile(r"[`*_#>]|\[([^\]]*)\]\([^)]*\)")
+_NOTE_LIMIT = 500
+
+
+def _plain(text: str) -> str:
+    """Markdown-stripped, whitespace-collapsed, length-capped — the PDF is a
+    summary, not a full dump of every task's long-form text."""
+    flat = " ".join(_MD_NOISE.sub(lambda m: m.group(1) or "", text or "").split())
+    return flat if len(flat) <= _NOTE_LIMIT else flat[: _NOTE_LIMIT - 1] + "…"
+
+
+def _task_notes(task: dict) -> list:
+    notes = []
+    if _plain(task.get("description", "")):
+        notes.append(("Description", _plain(task["description"])))
+    if _plain(task.get("completionSummary", "")):
+        status = task.get("completionSummaryStatus")
+        label = f"Execution summary ({status})" if status else "Execution summary"
+        notes.append((label, _plain(task["completionSummary"])))
+    return notes
 
 
 def build_pdf(boards: list) -> bytes:
@@ -128,6 +151,14 @@ def build_pdf(boards: list) -> bytes:
                 c.line(MARGIN + 28, y[0] + 3, MARGIN + 28 + width, y[0] + 3)
 
             set_y(block_h)
+
+            for label, note in _task_notes(task):
+                c.setFillColor(HexColor("#626E7C"))
+                for i, line in enumerate(_wrap(c, f"{label}: {note}", "Helvetica", 9, content_w - 30)):
+                    ensure_space(12)
+                    c.drawString(MARGIN + 28, y[0], line)
+                    set_y(12)
+                set_y(3)
 
         set_y(16)
 

@@ -61,6 +61,12 @@ class ExecutionSetting(BaseModel):
     maxToolRounds: Optional[int] = None
 
 
+class UsageDisplaySetting(BaseModel):
+    # Whether task cards on boards show per-task cost pills (members see them too).
+    showTaskCosts: Optional[bool] = None
+    showBoardCosts: Optional[bool] = None
+
+
 class AgentSettingsUpdate(BaseModel):
     tools: Optional[Dict[str, ToolSetting]] = None
     budget: Optional[BudgetSetting] = None
@@ -69,6 +75,13 @@ class AgentSettingsUpdate(BaseModel):
     concurrency: Optional[ConcurrencySetting] = None
     execution: Optional[ExecutionSetting] = None
     llmCallRetentionDays: Optional[int] = None
+    usageDisplay: Optional[UsageDisplaySetting] = None
+
+
+def usage_display_json(doc: dict) -> dict:
+    """Task costs are opt-in; board costs are on unless an admin hides them."""
+    display = doc.get("usageDisplay") or {}
+    return {"showTaskCosts": bool(display.get("showTaskCosts")), "showBoardCosts": display.get("showBoardCosts") is not False}
 
 
 def _default_rate_limits() -> dict:
@@ -89,6 +102,7 @@ def default_agent_settings(agent_id: str) -> dict:
         "concurrency": {"maxConcurrentTasks": None},
         "execution": {"maxToolRounds": config.TASK_MAX_TOOL_ROUNDS},
         "llmCallRetentionDays": config.DEFAULT_LLM_CALL_RETENTION_DAYS,
+        "usageDisplay": {"showTaskCosts": False, "showBoardCosts": True},
     }
 
 
@@ -103,6 +117,7 @@ def settings_to_json(doc: dict) -> dict:
         "concurrency": doc.get("concurrency") or {"maxConcurrentTasks": None},
         "execution": {"maxToolRounds": execution.get("maxToolRounds") or config.TASK_MAX_TOOL_ROUNDS},
         "llmCallRetentionDays": doc.get("llmCallRetentionDays") or config.DEFAULT_LLM_CALL_RETENTION_DAYS,
+        "usageDisplay": usage_display_json(doc),
         # Ceilings for the settings UI to build its model picker and clamp
         # the maxTokens/maxToolRounds/retention inputs from — the backend
         # stays the single source of truth instead of duplicating these in

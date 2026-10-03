@@ -1,10 +1,17 @@
+import logging
+import time
 from typing import AsyncGenerator, List, Optional
 
 import anthropic
 
 from . import config
+from .accounting.attribution import UsageAttribution
+from .accounting.chat_usage import partial_message, record_chat_call
+from .accounting.events import Outcome
 from .models_settings import default_model_config
-from .services import settings_service
+from .services import budget_service, settings_service
+
+log = logging.getLogger(__name__)
 
 _client = anthropic.AsyncAnthropic(api_key=config.ANTHROPIC_API_KEY) if config.ANTHROPIC_API_KEY else None
 
@@ -77,9 +84,18 @@ def build_board_context(board: dict, tools_available: bool = True) -> str:
     return "\n".join(lines)
 
 
-async def stream_reply(board: dict, history: List[dict]) -> AsyncGenerator[str, None]:
+BUDGET_BLOCKED_MESSAGE = "Budget cap reached for this board — chat is paused until the cap is raised or reset."
+
+
+async def stream_reply(board: dict, history: List[dict],
+                       attribution: Optional[UsageAttribution] = None) -> AsyncGenerator[str, None]:
     if _client is None:
         yield "Chat isn't configured — the server is missing an ANTHROPIC_API_KEY."
+        return
+
+    agent_id = board.get("agentId")
+    if await budget_service.check_exceeded(agent_id, board["_id"]):
+        yield BUDGET_BLOCKED_MESSAGE
         return
 
     system_prompt = build_board_context(board, tools_available=False)
@@ -88,12 +104,13 @@ async def stream_reply(board: dict, history: List[dict]) -> AsyncGenerator[str, 
         for m in history
         if m.get("type", "text") == "text" and m.get("text")
     ]
-
-    agent_id = board.get("agentId")
     model_config = (
         (await settings_service.get_settings(agent_id))["modelConfig"] if agent_id else default_model_config()
     )
 
+    stream = response = None
+    outcome = Outcome.CANCELLED  # stays this way if the consumer disconnects mid-stream
+    started = time.monotonic()
     try:
         async with _client.messages.stream(
             model=model_config["model"],
@@ -103,10 +120,22 @@ async def stream_reply(board: dict, history: List[dict]) -> AsyncGenerator[str, 
         ) as stream:
             async for text in stream.text_stream:
                 yield text
+            response = await stream.get_final_message()
+            outcome = Outcome.SUCCESS
     except anthropic.APIStatusError as e:
+        outcome = Outcome.ERROR
         if e.status_code == 429:
             yield "You're sending messages a bit fast — please wait a moment and try again."
         else:
             yield f"Something went wrong reaching the assistant ({e.status_code})."
     except Exception:
+        outcome = Outcome.ERROR
         yield "Something went wrong reaching the assistant."
+    finally:
+        # Anthropic bills partial output, so a cut-off stream records whatever usage had accumulated.
+        billable = response if response is not None else (partial_message(stream) if stream is not None else None)
+        if billable is not None:
+            await record_chat_call(board, attribution, billable, system_prompt, messages,
+                                   (time.monotonic() - started) * 1000, outcome)
+        elif outcome is Outcome.CANCELLED and stream is not None:
+            log.warning("chat stream for board %s ended early with no usage available", board.get("_id"))

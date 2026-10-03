@@ -10,6 +10,7 @@ from .services.action_service import ActionService
 from .services.admin_auth_service import AdminAuthService
 from .services.action_settings_service import ActionSettingsService
 from .services.audit_service import AuditService
+from .services.connection_resolver import ConnectionResolver
 from .services.connection_service import ConnectionService
 from .services.credentials_service import CredentialsService
 from .services.provider_admin_service import ProviderAdminService
@@ -42,7 +43,7 @@ def build_container(db, backends: dict, secrets: Optional[FallbackSecretStore] =
     secrets = secrets or FallbackSecretStore(DbSecretStore(db, ""), EnvSecretStore())
     credentials = CredentialsService(secrets, audit)
     action_settings = ActionSettingsService(db, audit)
-    actions = ActionService(providers, audit, action_settings)
+    actions = ActionService(providers, audit, action_settings, ConnectionResolver(connections))
     return Container(
         db, providers, connections, actions,
         WebhookService(db, providers, connections), audit, secrets, credentials,

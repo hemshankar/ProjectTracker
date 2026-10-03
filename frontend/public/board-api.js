@@ -14,12 +14,20 @@
       headers: body !== undefined ? {"Content-Type": "application/json"} : undefined,
       body: body !== undefined ? JSON.stringify(body) : undefined
     });
-    if(!r.ok) throw new Error(method + " " + path + " failed");
+    if(!r.ok){
+      // Carries the status and parsed body so a caller can react to a 409
+      // (e.g. a stale-version conflict) instead of just seeing "failed".
+      var err = new Error(method + " " + path + " failed");
+      err.status = r.status;
+      try{ err.body = await r.json(); }catch(e){ err.body = null; }
+      throw err;
+    }
     var ct = r.headers.get("content-type") || "";
     if(ct.indexOf("application/json") !== -1) return r.json();
     return null;
   }
   var apiPost = function(path, body){ return apiSend("POST", path, body === undefined ? {} : body); };
+  var apiPut = function(path, body){ return apiSend("PUT", path, body); };
   var apiPatch = function(path, body){ return apiSend("PATCH", path, body); };
   var apiDelete = function(path){ return apiSend("DELETE", path); };
 
@@ -47,6 +55,7 @@
     apiGet: apiGet,
     apiPost: apiPost,
     apiPatch: apiPatch,
+    apiPut: apiPut,
     apiDelete: apiDelete,
     agentQS: agentQS,
     downloadFromApi: downloadFromApi

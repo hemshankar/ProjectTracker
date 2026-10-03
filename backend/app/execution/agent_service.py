@@ -21,7 +21,7 @@ from ..database import agents_collection, boards_collection
 from ..models_settings import default_model_config
 from ..services import settings_service
 from ..services.chats_service import text_message
-from . import subagent, tools, tracing
+from . import subagent, task_field_tool_specs, task_field_tools, tools, tracing
 from .conversation import assistant_turn, build_task_system_prompt, split_response, to_anthropic_messages, tool_result_turn
 from .enforcement import check_budget
 from .events import events
@@ -227,6 +227,16 @@ async def run_task_step(
                 return "awaiting_approval"
             anthropic_messages.append(assistant_turn(response, tool_use))
             anthropic_messages.append(tool_result_turn(tool_use.id, result_text))
+            continue
+
+        if tool_use.name in task_field_tool_specs.TASK_FIELD_TOOLS:
+            result_text, is_error = await task_field_tools.run(tool_use.name, tool_use.input, board_id, task["id"])
+            await _record({
+                "name": tool_use.name, "params": tool_use.input, "result": result_text,
+                "status": "failed" if is_error else "done",
+            })
+            anthropic_messages.append(assistant_turn(response, tool_use))
+            anthropic_messages.append(tool_result_turn(tool_use.id, result_text, is_error=is_error))
             continue
 
         spec = tools.TOOLS.get(tool_use.name)

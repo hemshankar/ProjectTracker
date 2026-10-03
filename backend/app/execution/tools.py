@@ -7,22 +7,13 @@ connected `ToolConnector` when available and falls back to a simulated
 result otherwise — so the approval workflow (Phase 4) and this phase's
 enforcement can both be exercised without live credentials.
 """
-from dataclasses import dataclass
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from .. import integrations_client
 from ..integrations_client import IntegrationsClient, IntegrationsError
-
-
-@dataclass(frozen=True)
-class ToolSpec:
-    name: str
-    description: str
-    input_schema: Dict[str, Any]
-    mutating: bool
-    simulate: Callable[[Dict[str, Any]], str]
-    tool_type: Optional[str] = None  # None for internal, non-connector tools
-    resource_key: Optional[Callable[[Dict[str, Any]], str]] = None
+from .task_field_tool_specs import TASK_FIELD_TOOLS
+from .tool_accounts import ACCOUNT_PARAM, add_account_param, resolve_connection_id
+from .tool_spec import ToolSpec
 
 
 def _send_email(params: Dict[str, Any]) -> str:
@@ -192,6 +183,9 @@ TOOLS: Dict[str, ToolSpec] = {
 }
 
 
+TOOLS.update(TASK_FIELD_TOOLS)
+
+
 # Dynamic-filtering web search needs Opus 5/4.8/4.7/4.6 or Sonnet 5/4.6; other
 # models fall back to the older, basic variant.
 _WEB_SEARCH_DYNAMIC_MODELS = {"claude-opus-5", "claude-sonnet-5"}
@@ -232,6 +226,7 @@ TOOL_TO_ACTION: Dict[str, str] = {
     "create_calendar_event": "calendar.create_event",
     "send_slack_message": "slack.post_message",
 }
+add_account_param(TOOLS, TOOL_TO_ACTION)
 
 
 async def execute_tool(
@@ -244,8 +239,15 @@ async def execute_tool(
     if spec.tool_type is None or agent_id is None or action is None:
         return spec.simulate(params)
     client = client or integrations_client.get_integrations_client()
+    account = params.get(ACCOUNT_PARAM)
+    args = {k: v for k, v in params.items() if k != ACCOUNT_PARAM}
+    extra = {}
     try:
-        result = await client.execute(agent_id, spec.tool_type, action, params)
+        if account:
+            extra["connection_id"] = await resolve_connection_id(client, agent_id, spec.tool_type, str(account))
+        result = await client.execute(agent_id, spec.tool_type, action, args, **extra)
+    except LookupError as exc:
+        raise ToolExecutionError(str(exc)) from exc
     except IntegrationsError as exc:
         if exc.code == "not_connected":
             return spec.simulate(params)

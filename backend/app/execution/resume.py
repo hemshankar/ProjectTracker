@@ -13,13 +13,14 @@ completion bookkeeping. This module is that shared bookkeeping; each caller
 still does its own caller-specific work (e.g. approval's own audit record of
 the human's approve/reject decision) before or after calling it.
 """
+import logging
 from typing import Iterable, Optional
 
 from .. import task_state
 from ..database import boards_collection
 from ..models import board_to_json
 from ..services import audit_service, chats_service
-from . import agent_service, completion
+from . import agent_service, completion, completion_summary
 from .context import finish_task_run
 from .enforcement import BudgetExceededError, halt_board
 from .events import events
@@ -64,6 +65,11 @@ async def resume_task(
     if new_status not in SUSPEND_STATUSES and run_id:
         await finish_task_run(run_id, new_status, None)
     await events.publish(board_id, {"taskId": task_id, "status": new_status})
+    if new_status in ("done", "failed", "stopped", "manual"):
+        try:
+            await completion_summary.finalize(board_id, task_id, new_status)
+        except Exception:
+            logging.getLogger("uvicorn.error").exception("execution summary failed for task %s", task_id)
 
     for m in new_messages:
         await audit_service.write_audit(
